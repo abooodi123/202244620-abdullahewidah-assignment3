@@ -144,6 +144,7 @@ const STATE_SCHEMA = {
   visitorName: { key: "portfolio-visitor-name", fallback: "", format: "text", isValid: (value) => value === "" || checkVisitorName(value) === "" },
   hiddenSections: { key: "portfolio-hidden-sections", fallback: [], format: "json", isValid: (value) => Array.isArray(value) && value.every((id) => typeof id === "string") },
   githubForks: { key: "portfolio-github-forks", fallback: false, format: "json", isValid: (value) => typeof value === "boolean" },
+  projectView: { key: "portfolio-project-view", fallback: "all", format: "text", isValid: isOneOf("all", "beginner", "advanced") },
 };
 
 // A tiny publish/subscribe store. Features read values with get(), change them
@@ -518,10 +519,41 @@ const PROJECT_FILTERS = {
   web: "Web",
 };
 
+// Dates are "YYYY-MM" strings, which sort correctly as plain text.
+// Ties fall back to the featured order so the result never jumps around.
 const PROJECT_SORTERS = {
   featured: (a, b) => a.order - b.order,
+  newest: (a, b) => b.date.localeCompare(a.date) || a.order - b.order,
+  oldest: (a, b) => a.date.localeCompare(b.date) || a.order - b.order,
   name: (a, b) => a.title.localeCompare(b.title),
   status: (a, b) => Number(b.status === "active") - Number(a.status === "active") || a.order - b.order,
+};
+
+// Each reader level is a set of rules: which project levels to show, whether
+// cards add a plain-language explanation, whether technical highlights open by
+// themselves, and what message to show.
+const PROJECT_VIEWS = {
+  all: {
+    label: "everyone",
+    levels: ["beginner", "intermediate", "advanced"],
+    plainWords: false,
+    openHighlights: false,
+    message: "",
+  },
+  beginner: {
+    label: "beginners",
+    levels: ["beginner", "intermediate"],
+    plainWords: true,
+    openHighlights: false,
+    message: "New to engineering? These are my easiest projects to follow, and each card starts with a short explanation in plain words.",
+  },
+  advanced: {
+    label: "advanced readers",
+    levels: ["intermediate", "advanced"],
+    plainWords: false,
+    openHighlights: true,
+    message: "Here for the technical details? These are my most involved projects, with their highlights already open.",
+  },
 };
 
 function initProjectExplorer() {
@@ -534,6 +566,10 @@ function initProjectExplorer() {
   const emptyState = $("#project-empty");
   const emptyText = $("#project-empty-text");
   const resetButton = $("#project-reset");
+  const levelBar = $("#level-bar");
+  const levelMessage = $("#level-message");
+  const viewRadios = $$('input[name="project-view"]', levelBar);
+  const detailButtons = $$(".details-toggle", grid);
 
   // The HTML is the single source of truth: read each card once.
   const projects = $$(".project-card", grid).map((card) => ({
@@ -541,6 +577,8 @@ function initProjectExplorer() {
     title: $("h3", card).textContent.trim(),
     categories: card.dataset.categories.split(" "),
     order: Number(card.dataset.order),
+    date: card.dataset.date,
+    level: card.dataset.level,
     status: card.dataset.status,
     // Index the real content only, not button labels such as "Show highlights".
     searchText: normalizeText(
@@ -548,17 +586,39 @@ function initProjectExplorer() {
     ),
   }));
 
-  // Start from the URL so a filtered view can be bookmarked or shared.
+  // Start from the URL so a filtered view can be bookmarked or shared. The level
+  // comes from the URL first, then from the visitor's saved choice.
   const params = new URLSearchParams(window.location.search);
   const state = {
     query: params.get("q") || "",
     filter: PROJECT_FILTERS[params.get("area")] ? params.get("area") : "all",
     sort: PROJECT_SORTERS[params.get("sort")] ? params.get("sort") : "featured",
+    view: PROJECT_VIEWS[params.get("view")] ? params.get("view") : store.get("projectView"),
   };
 
   const searchTerms = () => normalizeText(state.query).split(" ").filter(Boolean);
   const matchesSearch = (project, terms) => terms.every((term) => project.searchText.includes(term));
   const matchesFilter = (project, filter) => filter === "all" || project.categories.includes(filter);
+  const matchesView = (project, view) => PROJECT_VIEWS[view].levels.includes(project.level);
+
+  // A project is shown only if it passes every step: level, then area, then search.
+  const isVisible = (project, { view = state.view, filter = state.filter, terms = searchTerms() } = {}) =>
+    matchesView(project, view) && matchesFilter(project, filter) && matchesSearch(project, terms);
+
+  function setHighlightsOpen(button, open) {
+    button.setAttribute("aria-expanded", String(open));
+    document.getElementById(button.getAttribute("aria-controls")).classList.toggle("is-open", open);
+    $(".details-label", button).textContent = open ? "Hide highlights" : "Show highlights";
+  }
+
+  // Applies the rules of the chosen level to the whole section.
+  function applyView() {
+    const rules = PROJECT_VIEWS[state.view];
+    viewRadios.forEach((radio) => (radio.checked = radio.value === state.view));
+    grid.classList.toggle("show-plain-words", rules.plainWords);
+    detailButtons.forEach((button) => setHighlightsOpen(button, rules.openHighlights));
+    levelMessage.textContent = rules.message;
+  }
 
   function render({ animateAll = false } = {}) {
     const terms = searchTerms();
@@ -566,7 +626,7 @@ function initProjectExplorer() {
 
     // Re-append in sorted order so keyboard focus follows the visual order.
     [...projects].sort(PROJECT_SORTERS[state.sort]).forEach((project) => {
-      const isMatch = matchesFilter(project, state.filter) && matchesSearch(project, terms);
+      const isMatch = isVisible(project, { terms });
       const wasHidden = project.card.hidden;
       grid.appendChild(project.card);
       project.card.hidden = !isMatch;
@@ -575,10 +635,10 @@ function initProjectExplorer() {
       if (animateAll || wasHidden) replayAnimation(project.card, "is-entering");
     });
 
-    // Each chip previews how many results it would give for the current search.
+    // Each chip previews how many results it would give for the current level and search.
     chips.forEach((chip) => {
       const filter = chip.dataset.filter;
-      const count = projects.filter((project) => matchesFilter(project, filter) && matchesSearch(project, terms)).length;
+      const count = projects.filter((project) => isVisible(project, { filter, terms })).length;
       chip.setAttribute("aria-pressed", String(filter === state.filter));
       $(".chip-count", chip).textContent = String(count);
     });
@@ -587,24 +647,35 @@ function initProjectExplorer() {
     syncUrl();
   }
 
+  const plural = (count, one, many) => (count === 1 ? one : many);
+
   function updateSummary(visibleCount) {
     const area = state.filter === "all" ? "" : ` in ${PROJECT_FILTERS[state.filter]}`;
+    const audience = state.view === "all" ? "" : ` for ${PROJECT_VIEWS[state.view].label}`;
     const query = state.query.trim();
     const strong = document.createElement("strong");
     strong.textContent = String(visibleCount);
 
     // Built with text nodes, never innerHTML, so typed text cannot inject markup.
     countText.textContent = "";
-    countText.append("Showing ", strong, ` of ${projects.length} projects${area}${query ? ` matching “${query}”` : ""}.`);
+    countText.append("Showing ", strong, ` of ${projects.length} projects${audience}${area}${query ? ` matching “${query}”` : ""}.`);
 
     emptyState.hidden = visibleCount > 0;
     if (visibleCount > 0) return;
 
-    // Tell the visitor what to try next, based on why nothing matched.
-    const terms = searchTerms();
-    const matchesElsewhere = projects.filter((project) => matchesSearch(project, terms)).length;
-    if (query && state.filter !== "all" && matchesElsewhere > 0) {
-      emptyText.textContent = `Nothing mentions “${query}”${area}, but ${matchesElsewhere} ${matchesElsewhere === 1 ? "project" : "projects"} in other areas ${matchesElsewhere === 1 ? "does" : "do"}. Choose “All” to see ${matchesElsewhere === 1 ? "it" : "them"}.`;
+    // Tell the visitor what to try next, based on which step removed everything.
+    // Each count relaxes exactly one step, so the advice names the real cause.
+    const inOtherAreas = state.filter === "all" ? 0 : projects.filter((project) => isVisible(project, { filter: "all" })).length;
+    const atOtherLevels = state.view === "all" ? 0 : projects.filter((project) => isVisible(project, { view: "all" })).length;
+    const what = query ? `Nothing${audience} mentions “${query}”${area}` : `There are no projects${audience}${area}`;
+    const count = (n) => `${n} ${plural(n, "project", "projects")}`;
+
+    if (inOtherAreas > 0 && atOtherLevels > 0) {
+      emptyText.textContent = `${what}. Choose “All” areas to see ${count(inOtherAreas)}, or “Everyone” to see ${count(atOtherLevels)}.`;
+    } else if (inOtherAreas > 0) {
+      emptyText.textContent = `${what}, but ${count(inOtherAreas)} in other areas ${plural(inOtherAreas, "matches", "match")}. Choose “All” to see ${plural(inOtherAreas, "it", "them")}.`;
+    } else if (atOtherLevels > 0) {
+      emptyText.textContent = `${what}, but ${count(atOtherLevels)} at other levels ${plural(atOtherLevels, "matches", "match")}. Choose “Everyone” to see ${plural(atOtherLevels, "it", "them")}.`;
     } else if (query) {
       emptyText.textContent = `Nothing mentions “${query}”. Check the spelling or try a broader keyword, such as a language or a device.`;
     } else {
@@ -621,6 +692,7 @@ function initProjectExplorer() {
     setParam("q", state.query.trim(), "");
     setParam("area", state.filter, "all");
     setParam("sort", state.sort, "featured");
+    setParam("view", state.view, "all");
     try {
       history.replaceState(null, "", url);
     } catch {
@@ -656,10 +728,32 @@ function initProjectExplorer() {
     render({ animateAll: true });
   });
 
+  function setView(view) {
+    if (view === state.view) return;
+    state.view = view;
+    applyView();
+    render({ animateAll: true });
+  }
+
+  // A level chosen here is saved for next time. setView is also called directly,
+  // because a level opened from a shared link may differ from the saved one,
+  // in which case saving it would not count as a change.
+  viewRadios.forEach((radio) =>
+    radio.addEventListener("change", () => {
+      store.set("projectView", radio.value);
+      setView(radio.value);
+    })
+  );
+
+  // Follows a reset in the Personalize dialog or a choice made in another tab.
+  store.subscribe("projectView", setView);
+
   resetButton.addEventListener("click", () => {
     state.query = "";
     state.filter = "all";
     searchInput.value = "";
+    store.set("projectView", "all");
+    setView("all");
     render();
     searchInput.focus();
   });
@@ -672,21 +766,16 @@ function initProjectExplorer() {
   });
 
   // Expand and collapse project highlights.
-  $$(".details-toggle", grid).forEach((button) => {
-    const panel = document.getElementById(button.getAttribute("aria-controls"));
-    const label = $(".details-label", button);
+  detailButtons.forEach((button) => {
     button.hidden = false;
-    button.addEventListener("click", () => {
-      const open = button.getAttribute("aria-expanded") !== "true";
-      button.setAttribute("aria-expanded", String(open));
-      panel.classList.toggle("is-open", open);
-      label.textContent = open ? "Hide highlights" : "Show highlights";
-    });
+    button.addEventListener("click", () => setHighlightsOpen(button, button.getAttribute("aria-expanded") !== "true"));
   });
 
   searchInput.value = state.query;
   sortSelect.value = state.sort;
   toolbar.hidden = false;
+  levelBar.hidden = false;
+  applyView();
   render();
 }
 

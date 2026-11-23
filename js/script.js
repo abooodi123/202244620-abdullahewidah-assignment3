@@ -6,11 +6,9 @@
    bottom of this file, and one failing feature never stops the others.
    ========================================================================== */
 
-// Every value the site keeps in localStorage, in one place.
+// Cached data and drafts. Visitor preferences live in the state store below.
 const STORAGE_KEYS = {
-  theme: "portfolio-theme",
   githubCache: "portfolio-github-cache",
-  githubForks: "portfolio-github-forks",
   contactDraft: "portfolio-contact-draft",
 };
 
@@ -19,32 +17,36 @@ const STORAGE_KEYS = {
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
 
-// localStorage throws in some private windows and when storage is blocked,
+// Web Storage throws in some private windows and when storage is blocked,
 // so every access goes through these wrappers and the site keeps working.
-const storage = {
-  get(key) {
-    try {
-      return localStorage.getItem(key);
-    } catch {
-      return null;
-    }
-  },
-  set(key, value) {
-    try {
-      localStorage.setItem(key, value);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  remove(key) {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      // Nothing to clean up when storage is unavailable.
-    }
-  },
-};
+function createSafeStorage(areaName) {
+  return {
+    get(key) {
+      try {
+        return window[areaName].getItem(key);
+      } catch {
+        return null;
+      }
+    },
+    set(key, value) {
+      try {
+        window[areaName].setItem(key, value);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    remove(key) {
+      try {
+        window[areaName].removeItem(key);
+      } catch {
+        // Nothing to clean up when storage is unavailable.
+      }
+    },
+  };
+}
+
+const storage = createSafeStorage("localStorage"); // Kept across visits.
 
 // Waits until calls stop for `wait` ms, so typing does not re-render on every key.
 function debounce(callback, wait) {
@@ -117,6 +119,99 @@ function onMediaChange(query, handler) {
   }
 }
 
+/* ---------- App state: one store for everything the site remembers ---------- */
+
+// Letters from any language, plus spaces, hyphens, apostrophes, and periods.
+const VISITOR_NAME_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M} '.-]*$/u;
+
+// Returns an error message for a visitor name, or "" when it is fine.
+function checkVisitorName(name) {
+  if (!name) return "Please type a name first.";
+  if (name.length < 2) return "Your name should be at least 2 characters long.";
+  if (name.length > 30) return "Please keep your name to 30 characters or fewer.";
+  if (!VISITOR_NAME_PATTERN.test(name)) return "Please use letters only (spaces, hyphens, and apostrophes are fine).";
+  return "";
+}
+
+const isOneOf = (...options) => (value) => options.includes(value);
+
+// Every remembered setting, with its localStorage key, its default value, how it
+// is saved ("text" as-is, or "json"), and a check that rejects damaged or
+// outdated saved values. Text values keep the Assignment 2 format, so the
+// inline <head> script can still read the theme before the first paint.
+const STATE_SCHEMA = {
+  theme: { key: "portfolio-theme", fallback: "system", format: "text", isValid: isOneOf("light", "dark", "system") },
+  visitorName: { key: "portfolio-visitor-name", fallback: "", format: "text", isValid: (value) => value === "" || checkVisitorName(value) === "" },
+  hiddenSections: { key: "portfolio-hidden-sections", fallback: [], format: "json", isValid: (value) => Array.isArray(value) && value.every((id) => typeof id === "string") },
+  githubForks: { key: "portfolio-github-forks", fallback: false, format: "json", isValid: (value) => typeof value === "boolean" },
+};
+
+// A tiny publish/subscribe store. Features read values with get(), change them
+// with set(), and subscribe() to re-render whenever a value changes, whether
+// the change came from this tab or from another open tab of the site.
+function createStore(schema) {
+  const values = {};
+  const listeners = {};
+  const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  function load(name) {
+    const { key, fallback, format, isValid } = schema[name];
+    const raw = storage.get(key);
+    if (raw === null) return fallback;
+    let value = raw;
+    if (format === "json") {
+      try {
+        value = JSON.parse(raw);
+      } catch {
+        return fallback;
+      }
+    }
+    return isValid(value) ? value : fallback;
+  }
+
+  function update(name, value) {
+    if (sameValue(value, values[name])) return;
+    values[name] = value;
+    listeners[name].forEach((listener) => listener(value));
+  }
+
+  Object.keys(schema).forEach((name) => {
+    values[name] = load(name);
+    listeners[name] = new Set();
+  });
+
+  // The "storage" event fires when another tab changes localStorage
+  // (event.key is null when that tab cleared everything).
+  window.addEventListener("storage", (event) => {
+    Object.keys(schema).forEach((name) => {
+      if (event.key === null || event.key === schema[name].key) update(name, load(name));
+    });
+  });
+
+  function set(name, value) {
+    const { key, fallback, format, isValid } = schema[name];
+    if (!isValid(value)) throw new TypeError(`Rejected an invalid value for "${name}".`);
+    // Defaults are not stored: an empty storage means "use the default".
+    if (sameValue(value, fallback)) storage.remove(key);
+    else storage.set(key, format === "json" ? JSON.stringify(value) : value);
+    update(name, value);
+  }
+
+  return {
+    get: (name) => values[name],
+    set,
+    reset: (name) => set(name, schema[name].fallback),
+    names: () => Object.keys(schema),
+    // Calls listener(value) on every change; with { now: true } also right away.
+    subscribe(name, listener, { now = false } = {}) {
+      listeners[name].add(listener);
+      if (now) listener(values[name]);
+    },
+  };
+}
+
+const store = createStore(STATE_SCHEMA);
+
 /* ---------- Theme ---------- */
 
 function initTheme() {
@@ -125,6 +220,13 @@ function initTheme() {
   const themeColor = $('meta[name="theme-color"]');
   const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 
+  // The saved choice is "light", "dark", or "system" (follow the device).
+  const resolveTheme = () => {
+    const choice = store.get("theme");
+    if (choice !== "system") return choice;
+    return systemDark.matches ? "dark" : "light";
+  };
+
   // The inline script in <head> already chose the first theme before paint.
   function applyTheme(theme) {
     root.dataset.theme = theme;
@@ -132,24 +234,27 @@ function initTheme() {
     if (themeColor) themeColor.setAttribute("content", theme === "dark" ? "#101b19" : "#f5f6f3");
   }
 
-  applyTheme(root.dataset.theme === "dark" ? "dark" : "light");
-
-  toggle.addEventListener("click", () => {
-    const next = root.dataset.theme === "dark" ? "light" : "dark";
-    storage.set(STORAGE_KEYS.theme, next);
-    // Cross-fade the whole page where the View Transitions API exists;
-    // other browsers simply switch instantly.
-    if (document.startViewTransition && !prefersReducedMotion()) {
+  function showResolvedTheme() {
+    const next = resolveTheme();
+    if (next === root.dataset.theme) return;
+    // Cross-fade the whole page where the View Transitions API exists; other
+    // browsers switch instantly. A background tab (synced from another tab)
+    // cannot run a transition, so it also switches instantly.
+    if (document.startViewTransition && !prefersReducedMotion() && document.visibilityState === "visible") {
       document.startViewTransition(() => applyTheme(next));
     } else {
       applyTheme(next);
     }
-  });
+  }
 
-  // Follow live system changes until the visitor picks a theme themselves.
-  onMediaChange(systemDark, (event) => {
-    if (!storage.get(STORAGE_KEYS.theme)) applyTheme(event.matches ? "dark" : "light");
-  });
+  applyTheme(resolveTheme());
+
+  toggle.addEventListener("click", () => store.set("theme", root.dataset.theme === "dark" ? "light" : "dark"));
+
+  // Re-render when the choice changes (here, in the Personalize dialog, or in
+  // another tab) and when the device theme changes while "system" is chosen.
+  store.subscribe("theme", showResolvedTheme);
+  onMediaChange(systemDark, showResolvedTheme);
 }
 
 /* ---------- Navigation ---------- */
@@ -210,11 +315,12 @@ function initNavigation() {
 
 /* ---------- Greeting and local time ---------- */
 
-function getGreeting(hour) {
-  if (hour >= 5 && hour < 12) return "Good morning";
-  if (hour >= 12 && hour < 17) return "Good afternoon";
-  if (hour >= 17 && hour < 22) return "Good evening";
-  return "Hello, night owl";
+// Picks a greeting from the visitor's hour, and adds their name once they sign in.
+function getGreeting(hour, name = "") {
+  if (hour >= 5 && hour < 12) return name ? `Good morning, ${name}` : "Good morning";
+  if (hour >= 12 && hour < 17) return name ? `Good afternoon, ${name}` : "Good afternoon";
+  if (hour >= 17 && hour < 22) return name ? `Good evening, ${name}` : "Good evening";
+  return name ? `Still up, ${name}?` : "Hello, night owl";
 }
 
 function initGreeting() {
@@ -222,8 +328,8 @@ function initGreeting() {
   const localTime = $("#local-time");
   const clock = $("#dhahran-time");
 
-  // The greeting follows the visitor's clock; the time line shows mine.
-  greeting.textContent = getGreeting(new Date().getHours());
+  // The greeting follows the visitor's clock and name; the time line shows mine.
+  store.subscribe("visitorName", (name) => (greeting.textContent = getGreeting(new Date().getHours(), name)), { now: true });
   greeting.hidden = false;
 
   const dhahranTime = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Riyadh", hour: "numeric", minute: "2-digit" });
@@ -241,6 +347,118 @@ function initGreeting() {
     updateClock();
     setInterval(updateClock, 60 * 1000);
   }, (60 - new Date().getSeconds()) * 1000);
+}
+
+/* ---------- Personalize dialog: sign in, theme, and visible sections ---------- */
+
+function initPersonalize() {
+  const dialog = $("#prefs-dialog");
+  const openButton = $("#prefs-open");
+  // Older browsers without <dialog> support simply keep the button hidden.
+  if (typeof dialog.showModal !== "function") return;
+
+  const openLabel = $("#prefs-open-label");
+  const initial = $("#avatar-initial");
+  const nameForm = $("#name-form");
+  const nameInput = $("#visitor-name");
+  const nameError = $("#visitor-name-error");
+  const signedIn = $("#signed-in");
+  const switchList = $("#prefs-sections");
+  const themeRadios = $$('input[name="pref-theme"]', dialog);
+  const hideables = $$("[data-hideable]");
+
+  /* Signed-in status: the header button, the dialog, and the greeting all follow visitorName. */
+  store.subscribe(
+    "visitorName",
+    (name) => {
+      const isSignedIn = name !== "";
+      openButton.classList.toggle("is-signed-in", isSignedIn);
+      initial.textContent = isSignedIn ? name.charAt(0).toUpperCase() : "";
+      openLabel.textContent = isSignedIn ? `Personalize (signed in as ${name})` : "Personalize";
+      nameForm.hidden = isSignedIn;
+      signedIn.hidden = !isSignedIn;
+      $("#signed-in-name").textContent = name;
+    },
+    { now: true }
+  );
+
+  function showNameError(message) {
+    nameError.textContent = message;
+    nameInput.setAttribute("aria-invalid", String(Boolean(message)));
+  }
+
+  nameForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = nameInput.value.trim().replace(/\s+/g, " ");
+    const error = checkVisitorName(name);
+    showNameError(error);
+    if (error) {
+      nameInput.focus();
+      return;
+    }
+    store.set("visitorName", name);
+    nameInput.value = "";
+    showToast(`Welcome, ${name}! This browser will remember you.`);
+    $("#sign-out").focus();
+  });
+
+  nameInput.addEventListener("input", () => nameError.textContent && showNameError(""));
+
+  $("#sign-out").addEventListener("click", () => {
+    store.reset("visitorName");
+    showToast("Signed out. Your name was removed from this browser.");
+    nameInput.focus();
+  });
+
+  /* Theme: three choices that mirror the header toggle. */
+  store.subscribe("theme", (theme) => themeRadios.forEach((radio) => (radio.checked = radio.value === theme)), { now: true });
+  themeRadios.forEach((radio) => radio.addEventListener("change", () => store.set("theme", radio.value)));
+
+  /* Visible sections: one switch per element marked data-hideable. */
+  const switches = hideables.map((section) => {
+    const input = createElement("input", { attrs: { type: "checkbox", "data-section": section.id } });
+    input.addEventListener("change", () => {
+      const hidden = store.get("hiddenSections").filter((id) => id !== section.id);
+      store.set("hiddenSections", input.checked ? hidden : [...hidden, section.id]);
+    });
+    switchList.append(
+      createElement("label", { className: "switch" }, [input, createElement("span", { className: "switch-track", attrs: { "aria-hidden": "true" } }), createElement("span", { text: section.dataset.hideable })])
+    );
+    return input;
+  });
+
+  store.subscribe(
+    "hiddenSections",
+    (hiddenIds) => {
+      hideables.forEach((section, index) => {
+        const isHidden = hiddenIds.includes(section.id);
+        section.hidden = isHidden;
+        switches[index].checked = !isHidden;
+        // A hidden section's navigation link would lead nowhere, so hide it too.
+        const navLink = $(`.nav-links a[href="#${section.id}"]`);
+        if (navLink) navLink.parentElement.hidden = isHidden;
+      });
+    },
+    { now: true }
+  );
+
+  /* Reset everything the store remembers back to its default. */
+  $("#prefs-reset").addEventListener("click", () => {
+    store.names().forEach(store.reset);
+    showToast("All preferences were reset.");
+  });
+
+  /* Opening and closing. showModal() traps focus and closes on Escape for us. */
+  openButton.addEventListener("click", () => {
+    showNameError("");
+    dialog.showModal();
+  });
+  $("#prefs-close").addEventListener("click", () => dialog.close());
+  $("#prefs-done").addEventListener("click", () => dialog.close());
+  // A click on the backdrop lands on the <dialog> itself, outside the panel.
+  dialog.addEventListener("click", (event) => event.target === dialog && dialog.close());
+
+  openButton.hidden = false;
 }
 
 /* ---------- About tabs ---------- */
@@ -607,7 +825,7 @@ function initGitHubRepos() {
   const state = {
     repos: null,
     savedAt: 0,
-    includeForks: storage.get(STORAGE_KEYS.githubForks) === "true",
+    includeForks: store.get("githubForks"),
     expanded: false,
     loading: false,
     failed: false,
@@ -730,10 +948,13 @@ function initGitHubRepos() {
   }
 
   forksToggle.checked = state.includeForks;
-  forksToggle.addEventListener("change", () => {
-    state.includeForks = forksToggle.checked;
-    state.expanded = false;
-    storage.set(STORAGE_KEYS.githubForks, String(state.includeForks));
+  forksToggle.addEventListener("change", () => store.set("githubForks", forksToggle.checked));
+
+  // The switch writes to the store; the store change re-renders the list. This
+  // also keeps it in step after "Reset all preferences" or a change in another tab.
+  store.subscribe("githubForks", (includeForks) => {
+    Object.assign(state, { includeForks, expanded: false });
+    forksToggle.checked = includeForks;
     if (state.repos) render();
   });
 
@@ -1038,6 +1259,15 @@ function initContactForm() {
     draftNotice.hidden = !fieldNames.some((name) => fields[name].value.trim());
   }
 
+  // A signed-in visitor's name fills an empty Name field; it never replaces typing.
+  store.subscribe(
+    "visitorName",
+    (visitorName) => {
+      if (visitorName && !fields.name.value.trim()) fields.name.value = visitorName;
+    },
+    { now: true }
+  );
+
   $("#draft-discard").addEventListener("click", () => {
     resetForm();
     showToast("Draft discarded.");
@@ -1103,7 +1333,7 @@ function initContactForm() {
 
 /* ---------- Start ---------- */
 
-[initTheme, initNavigation, initGreeting, initAboutTabs, initProjectExplorer, initGitHubRepos, initCopyEmail, initContactForm, initScrollEffects, initFooterYear].forEach((init) => {
+[initTheme, initNavigation, initGreeting, initPersonalize, initAboutTabs, initProjectExplorer, initGitHubRepos, initCopyEmail, initContactForm, initScrollEffects, initFooterYear].forEach((init) => {
   try {
     init();
   } catch (error) {

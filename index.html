@@ -48,6 +48,12 @@
         </nav>
 
         <div class="header-actions">
+          <!-- Opens the Personalize dialog. Shows the visitor's initial once they sign in. -->
+          <button class="icon-button profile-button" id="prefs-open" type="button" aria-haspopup="dialog" aria-controls="prefs-dialog" title="Personalize" hidden>
+            <svg class="icon icon-user" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
+            <span class="avatar-initial" id="avatar-initial" aria-hidden="true"></span>
+            <span class="visually-hidden" id="prefs-open-label">Personalize</span>
+          </button>
           <button class="icon-button theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme" title="Toggle color theme">
             <svg class="icon icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" /></svg>
             <svg class="icon icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
@@ -334,7 +340,7 @@
         </div>
       </section>
 
-      <section class="section github-section" id="github" aria-labelledby="github-title">
+      <section class="section github-section" id="github" aria-labelledby="github-title" data-hideable="GitHub repositories">
         <div class="container">
           <div class="section-heading split-heading">
             <div>
@@ -456,6 +462,55 @@
     <a class="back-to-top" id="back-to-top" href="#top" aria-label="Back to top">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" /></svg>
     </a>
+
+    <!-- Personalize: everything here is saved in this browser only (see the state store in script.js). -->
+    <dialog class="prefs-dialog" id="prefs-dialog" aria-labelledby="prefs-title">
+      <div class="prefs-panel">
+        <div class="prefs-header">
+          <h2 id="prefs-title">Personalize</h2>
+          <button class="icon-button" type="button" id="prefs-close" aria-label="Close">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
+        <p class="prefs-intro">Your choices are saved in this browser only. Nothing is sent anywhere.</p>
+
+        <section class="prefs-group" aria-labelledby="prefs-name-title">
+          <h3 id="prefs-name-title">Sign in</h3>
+          <form class="name-form" id="name-form" novalidate>
+            <label for="visitor-name">What should I call you? No password needed.</label>
+            <div class="name-row">
+              <input id="visitor-name" type="text" autocomplete="given-name" maxlength="30" spellcheck="false" placeholder="Your first name" aria-describedby="visitor-name-error" />
+              <button class="button button-primary" type="submit">Sign in</button>
+            </div>
+            <p class="prefs-error" id="visitor-name-error"></p>
+          </form>
+          <div class="signed-in" id="signed-in" hidden>
+            <p>Signed in as <strong id="signed-in-name"></strong>. The site greets you by name and fills it into the contact form for you.</p>
+            <button class="button button-secondary" type="button" id="sign-out">Sign out</button>
+          </div>
+        </section>
+
+        <fieldset class="prefs-group">
+          <legend>Theme</legend>
+          <div class="segmented">
+            <label><input type="radio" name="pref-theme" value="light" /><span>Light</span></label>
+            <label><input type="radio" name="pref-theme" value="dark" /><span>Dark</span></label>
+            <label><input type="radio" name="pref-theme" value="system" /><span>Match my device</span></label>
+          </div>
+        </fieldset>
+
+        <!-- One switch per element marked data-hideable, created by script. -->
+        <fieldset class="prefs-group">
+          <legend>Show on the page</legend>
+          <div class="prefs-switches" id="prefs-sections"></div>
+        </fieldset>
+
+        <div class="prefs-footer">
+          <button class="text-button" type="button" id="prefs-reset"><span>Reset all preferences</span></button>
+          <button class="button button-primary" type="button" id="prefs-done">Done</button>
+        </div>
+      </div>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   </body>

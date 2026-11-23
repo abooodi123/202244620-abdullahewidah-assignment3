@@ -801,9 +801,11 @@ h1 em {
   display: none;
 }
 
+/* min-height matches a typical reading at each width (measured), so the
+   card keeps its size when the data replaces the loading skeleton. */
 .js .weather {
   display: flex;
-  min-height: 5.6rem;
+  min-height: 6.9rem;
   align-items: flex-start;
   gap: 1rem;
   max-width: 34rem;
@@ -892,9 +894,38 @@ h1 em {
   font-size: 0.78rem;
 }
 
+.weather-icon.is-skeleton {
+  background: var(--surface-2);
+}
+
+.weather-text .skeleton-line {
+  width: 85%;
+  margin-top: 0.55rem;
+}
+
+.weather-text .skeleton-line.is-short {
+  width: 50%;
+}
+
+@media (max-width: 900px) {
+  .js .weather {
+    min-height: 9.6rem;
+  }
+}
+
 @media (max-width: 420px) {
   .weather {
     flex-direction: column;
+  }
+
+  .js .weather {
+    min-height: 11.1rem;
+  }
+}
+
+@media (max-width: 340px) {
+  .js .weather {
+    min-height: 14rem;
   }
 }
 

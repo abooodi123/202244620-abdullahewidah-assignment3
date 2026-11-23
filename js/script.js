@@ -523,7 +523,15 @@ function initWeather() {
     // No data at all: say what went wrong and offer a retry.
     if (!state.entry) {
       if (state.loading) {
-        body.append(createElement("p", { className: "weather-note" }, [createElement("span", { className: "spinner", attrs: { "aria-hidden": "true" } }), "Checking the weather in Dhahran…"]));
+        // A skeleton with the same parts as a real reading, so the card keeps its shape.
+        body.append(
+          createElement("span", { className: "weather-icon is-skeleton", attrs: { "aria-hidden": "true" } }),
+          createElement("div", { className: "weather-text" }, [
+            createElement("p", { className: "weather-note" }, [createElement("span", { className: "spinner", attrs: { "aria-hidden": "true" } }), "Checking the weather in Dhahran…"]),
+            createElement("span", { className: "skeleton-line", attrs: { "aria-hidden": "true" } }),
+            createElement("span", { className: "skeleton-line is-short", attrs: { "aria-hidden": "true" } }),
+          ])
+        );
       } else if (state.error) {
         body.append(createElement("p", { className: "weather-note is-error" }, [describeWeatherError(state.error), " ", retryButton()]));
       }
@@ -856,7 +864,7 @@ function initAboutTabs() {
     indicator.style.transform = `translateX(${tab.offsetLeft}px)`;
   }
 
-  function selectTab(tab, { focus = true, animate = true } = {}) {
+  function selectTab(tab, { focus = true, animate = true, measure = true } = {}) {
     tabs.forEach((candidate, index) => {
       const isSelected = candidate === tab;
       candidate.setAttribute("aria-selected", String(isSelected));
@@ -865,7 +873,7 @@ function initAboutTabs() {
       panels[index].hidden = !isSelected;
       if (isSelected && animate) replayAnimation(panels[index], "is-entering");
     });
-    moveIndicator(tab);
+    if (measure) moveIndicator(tab);
     if (focus) tab.focus();
   }
 
@@ -881,10 +889,17 @@ function initAboutTabs() {
   });
 
   tabList.hidden = false;
-  selectTab(tabs[0], { focus: false, animate: false });
+  selectTab(tabs[0], { focus: false, animate: false, measure: false });
 
-  // Enable the sliding transition only after the first position is set.
-  requestAnimationFrame(() => indicator.classList.add("is-ready"));
+  // Measuring a tab (offsetWidth) right now would force the browser to lay out
+  // the whole page in the middle of start-up, while other features are still
+  // changing it (Lighthouse measured 87 ms on a phone). In the next frame the
+  // layout is done anyway, so measuring there is free. The sliding transition
+  // is enabled one frame later still, so the first placement does not slide.
+  requestAnimationFrame(() => {
+    moveIndicator(tabs[0]);
+    requestAnimationFrame(() => indicator.classList.add("is-ready"));
+  });
   window.addEventListener("resize", debounce(() => moveIndicator(selectedTab()), 100));
 }
 
@@ -1458,7 +1473,9 @@ function initScrollEffects() {
     },
     { passive: true }
   );
-  update();
+  // Reading scrollY during start-up would also force an early layout, so the
+  // first check waits for the next frame like every later one.
+  requestAnimationFrame(update);
 
   // Move focus to the top too, so keyboard users start again from the page heading.
   backToTop.addEventListener("click", () => {

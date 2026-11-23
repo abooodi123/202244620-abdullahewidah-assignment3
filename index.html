@@ -11,6 +11,10 @@
     <meta property="og:title" content="Abdullah Ewidah | Computer Engineer" />
     <meta property="og:description" content="Embedded systems, AI, and IoT projects by a computer engineering student at KFUPM." />
     <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml" />
+    <!-- The weather loads straight away, so open its connection early; GitHub
+         loads later (near its section), so only its DNS lookup is started. -->
+    <link rel="preconnect" href="https://api.open-meteo.com" crossorigin />
+    <link rel="dns-prefetch" href="https://api.github.com" />
     <script>
       // Runs before the first paint so the saved theme never flashes the wrong colors.
       (function () {

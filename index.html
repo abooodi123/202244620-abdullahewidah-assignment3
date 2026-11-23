@@ -170,10 +170,20 @@
               <p class="section-number">02 / Selected work</p>
               <h2 id="projects-title">Projects built with purpose.</h2>
             </div>
-            <p>Search by technology, filter by area, or open a project to read the highlights.</p>
+            <p>Pick your level, search by technology, filter by area, and sort by date.</p>
           </div>
 
           <!-- Hidden until JavaScript is ready; without it, every project is simply listed. -->
+          <div class="level-bar" id="level-bar" hidden>
+            <p class="level-label" id="level-label">Your level</p>
+            <div class="segmented" role="radiogroup" aria-labelledby="level-label">
+              <label><input type="radio" name="project-view" value="all" /><span>Everyone</span></label>
+              <label><input type="radio" name="project-view" value="beginner" /><span>Beginner</span></label>
+              <label><input type="radio" name="project-view" value="advanced" /><span>Advanced</span></label>
+            </div>
+            <p class="level-message" id="level-message" aria-live="polite"></p>
+          </div>
+
           <div class="project-toolbar" id="project-toolbar" hidden>
             <div class="search-field">
               <label class="visually-hidden" for="project-search">Search projects</label>
@@ -194,6 +204,8 @@
               <label for="project-sort">Sort</label>
               <select id="project-sort">
                 <option value="featured">Featured</option>
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
                 <option value="name">Name (A–Z)</option>
                 <option value="status">In progress first</option>
               </select>
@@ -203,7 +215,7 @@
           <p class="result-count" id="project-count" role="status" aria-live="polite"></p>
 
           <div class="project-grid" id="project-grid">
-            <article class="project-card" id="project-yolo" data-categories="ai embedded" data-order="1" data-status="completed" data-keywords="yolo quantization fpga fixed-point python deep learning object detection edge">
+            <article class="project-card" id="project-yolo" data-categories="ai embedded" data-order="1" data-date="2025-11" data-level="advanced" data-status="completed" data-keywords="yolo quantization fpga fixed-point python deep learning object detection edge">
               <img src="assets/images/yolo-quantization.svg" alt="Abstract diagram of data blocks being compressed for edge AI" width="800" height="480" loading="lazy" decoding="async" />
               <div class="project-body">
                 <div class="project-meta">
@@ -211,6 +223,11 @@
                   <span class="status-badge">Completed</span>
                 </div>
                 <h3>YOLO Quantization Framework</h3>
+                <ul class="project-facts" aria-label="When and how advanced">
+                  <li><time datetime="2025-11">Nov 2025</time></li>
+                  <li class="level-badge level-advanced">Advanced</li>
+                </ul>
+                <p class="plain-words"><strong>In plain words:</strong> AI models that spot objects in images are usually too big for small, low-power chips. I shrank one so it can run on that kind of hardware while keeping its accuracy almost the same.</p>
                 <p class="project-summary">A five-stage Python framework for FPGA-aware YOLO quantization and fixed-point hardware simulation, with less than 0.5% degradation compared with the floating-point baseline.</p>
                 <ul class="project-tags" aria-label="Technologies">
                   <li>Python</li>
@@ -234,7 +251,7 @@
               </div>
             </article>
 
-            <article class="project-card" id="project-twin" data-categories="embedded ai" data-order="2" data-status="active" data-keywords="digital twin senior design sensors predictive maintenance fault detection analytics real-time">
+            <article class="project-card" id="project-twin" data-categories="embedded ai" data-order="2" data-date="2026-06" data-level="advanced" data-status="active" data-keywords="digital twin senior design sensors predictive maintenance fault detection analytics real-time">
               <img src="assets/images/digital-twin.svg" alt="Abstract sensor signals feeding a digital model of a mechanical system" width="800" height="480" loading="lazy" decoding="async" />
               <div class="project-body">
                 <div class="project-meta">
@@ -242,6 +259,11 @@
                   <span class="status-badge status-active">In progress</span>
                 </div>
                 <h3>Mechanical Health Digital Twin</h3>
+                <ul class="project-facts" aria-label="When and how advanced">
+                  <li><time datetime="2026-06">Jun 2026 – now</time></li>
+                  <li class="level-badge level-advanced">Advanced</li>
+                </ul>
+                <p class="plain-words"><strong>In plain words:</strong> sensors on a machine feed a live computer model of it, so problems can be spotted before the machine breaks down.</p>
                 <p class="project-summary">A real-time digital twin for mechanical fault detection and predictive health monitoring, combining embedded sensing with data analytics.</p>
                 <ul class="project-tags" aria-label="Technologies">
                   <li>Embedded sensing</li>
@@ -265,7 +287,7 @@
               </div>
             </article>
 
-            <article class="project-card" id="project-gesture" data-categories="iot embedded ai" data-order="3" data-status="completed" data-keywords="gesture esp32 imu tinyml mqtt microcontroller wireless actuator signal processing">
+            <article class="project-card" id="project-gesture" data-categories="iot embedded ai" data-order="3" data-date="2026-01" data-level="intermediate" data-status="completed" data-keywords="gesture esp32 imu tinyml mqtt microcontroller wireless actuator signal processing">
               <img src="assets/images/gesture-iot.svg" alt="Abstract hand gesture signal connected to an IoT device" width="800" height="480" loading="lazy" decoding="async" />
               <div class="project-body">
                 <div class="project-meta">
@@ -273,6 +295,11 @@
                   <span class="status-badge">Completed</span>
                 </div>
                 <h3>Gesture-Controlled IoT System</h3>
+                <ul class="project-facts" aria-label="When and how advanced">
+                  <li><time datetime="2026-01">Jan 2026</time></li>
+                  <li class="level-badge level-intermediate">Intermediate</li>
+                </ul>
+                <p class="plain-words"><strong>In plain words:</strong> a small board with a motion sensor recognizes hand gestures using a tiny AI model, then sends a wireless message that controls another device.</p>
                 <p class="project-summary">A gesture control system using ESP32 microcontrollers, IMU sensing, spectral feature extraction, and MQTT to trigger remote actuator commands.</p>
                 <ul class="project-tags" aria-label="Technologies">
                   <li>ESP32</li>
@@ -296,7 +323,7 @@
               </div>
             </article>
 
-            <article class="project-card" id="project-portfolio" data-categories="web" data-order="4" data-status="active" data-keywords="portfolio website html css javascript frontend github api localstorage responsive accessibility">
+            <article class="project-card" id="project-portfolio" data-categories="web" data-order="4" data-date="2026-09" data-level="beginner" data-status="active" data-keywords="portfolio website html css javascript frontend github api localstorage responsive accessibility">
               <img src="assets/images/portfolio-site.svg" alt="Abstract browser window with interface cards and code brackets" width="800" height="480" loading="lazy" decoding="async" />
               <div class="project-body">
                 <div class="project-meta">
@@ -304,6 +331,11 @@
                   <span class="status-badge status-active">In progress</span>
                 </div>
                 <h3>This Portfolio Website</h3>
+                <ul class="project-facts" aria-label="When and how advanced">
+                  <li><time datetime="2026-09">Sep 2026 – now</time></li>
+                  <li class="level-badge level-beginner">Beginner-friendly</li>
+                </ul>
+                <p class="plain-words"><strong>In plain words:</strong> the website you are on right now. It is built from the three basic languages of the web, HTML, CSS, and JavaScript, and it grows with each assignment.</p>
                 <p class="project-summary">The site you are reading: hand-written HTML, CSS, and JavaScript with no frameworks or build step, grown across my SWE 363 assignments.</p>
                 <ul class="project-tags" aria-label="Technologies">
                   <li>HTML</li>

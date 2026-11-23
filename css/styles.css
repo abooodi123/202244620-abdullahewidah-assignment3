@@ -1248,6 +1248,90 @@ h1 em {
 
 /* ---------- Project explorer (search, filters, sort, details) ---------- */
 
+/* Reader level: a row of radio "pills" plus a message that changes with the choice. */
+.level-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.level-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.level-message {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--accent-soft);
+  font-size: 0.9rem;
+  animation: notice-in 0.3s var(--ease) both;
+}
+
+.level-message:empty {
+  display: none;
+}
+
+/* Date and level under each project title. */
+.project-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.9rem;
+  margin: -0.35rem 0 0.9rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.level-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* One, two, or three filled bars show the level at a glance. */
+.level-badge::before {
+  content: "";
+  width: 1rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent) 0 28%, transparent 28% 36%, var(--line-strong) 36% 64%, transparent 64% 72%, var(--line-strong) 72%);
+}
+
+.level-intermediate::before {
+  background: linear-gradient(90deg, var(--accent) 0 28%, transparent 28% 36%, var(--accent) 36% 64%, transparent 64% 72%, var(--line-strong) 72%);
+}
+
+.level-advanced::before {
+  background: linear-gradient(90deg, var(--accent) 0 28%, transparent 28% 36%, var(--accent) 36% 64%, transparent 64% 72%, var(--accent) 72%);
+}
+
+/* Plain-language explanations appear only in the Beginner view
+   (and always when JavaScript is off, so no content is lost). */
+.plain-words {
+  margin-bottom: 1rem;
+  padding: 0.8rem 0.95rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 0.88rem;
+}
+
+.js .project-grid:not(.show-plain-words) .plain-words {
+  display: none;
+}
+
+.show-plain-words .plain-words {
+  animation: notice-in 0.3s var(--ease) both;
+}
+
 .project-toolbar {
   display: flex;
   flex-wrap: wrap;

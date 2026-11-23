@@ -2497,6 +2497,86 @@ h1 em {
   font-weight: 700;
 }
 
+/* "Did you mean …?" email suggestion. */
+.field-hint {
+  margin: 0;
+  color: var(--contact-muted);
+  font-size: 0.82rem;
+}
+
+.field-hint .text-button {
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+#company-field:not([hidden]) {
+  animation: notice-in 0.3s var(--ease) both;
+}
+
+/* Live checklist of required fields. */
+.form-checklist {
+  padding: 0.8rem 0.95rem;
+  border: 1px dashed var(--contact-line);
+  border-radius: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.form-checklist.is-ready {
+  border-style: solid;
+  border-color: var(--contact-accent);
+}
+
+.checklist-title {
+  margin: 0 0 0.45rem;
+  color: var(--contact-muted);
+  font-weight: 700;
+}
+
+.form-checklist.is-ready #checklist-summary {
+  color: var(--contact-accent);
+}
+
+.form-checklist ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+}
+
+.form-checklist li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--contact-muted);
+}
+
+/* An empty ring until the field is valid, then a filled check. */
+.form-checklist li::before {
+  content: "";
+  display: grid;
+  place-items: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  border: 2px solid var(--contact-line);
+  border-radius: 50%;
+  font-size: 0.6rem;
+  font-weight: 900;
+  line-height: 1;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.form-checklist li.is-done {
+  color: var(--contact-ink);
+}
+
+.form-checklist li.is-done::before {
+  content: "✓";
+  border-color: var(--contact-accent);
+  background: var(--contact-accent);
+  color: var(--contact-bg);
+}
+
 .contact-form .button-primary {
   align-self: flex-start;
   background: var(--contact-accent);

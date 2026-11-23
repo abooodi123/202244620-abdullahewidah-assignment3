@@ -480,8 +480,9 @@
 
             <div class="field">
               <label for="email">Email</label>
-              <input id="email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required maxlength="254" aria-describedby="email-error" />
+              <input id="email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required maxlength="254" aria-describedby="email-error email-hint" />
               <p class="field-error" id="email-error"></p>
+              <p class="field-hint" id="email-hint" hidden>Did you mean <button class="text-button" type="button" id="email-fix"></button>?</p>
             </div>
 
             <div class="field">
@@ -495,6 +496,13 @@
               </select>
             </div>
 
+            <!-- Shown and required only when the topic is "Internship or job opportunity". -->
+            <div class="field" id="company-field" hidden>
+              <label for="company">Company or organization</label>
+              <input id="company" name="company" type="text" autocomplete="organization" placeholder="Where is the opportunity?" maxlength="100" aria-describedby="company-error" />
+              <p class="field-error" id="company-error"></p>
+            </div>
+
             <div class="field">
               <label for="message">Message</label>
               <textarea id="message" name="message" rows="5" placeholder="Tell me what’s on your mind" required minlength="10" maxlength="1500" aria-describedby="message-error message-count"></textarea>
@@ -502,6 +510,11 @@
                 <p class="field-error" id="message-error"></p>
                 <p class="char-count" id="message-count" hidden>0 / 1500</p>
               </div>
+            </div>
+
+            <div class="form-checklist" id="form-checklist" hidden>
+              <p class="checklist-title"><span id="checklist-title">Before you send</span> · <span id="checklist-summary"></span></p>
+              <ul aria-labelledby="checklist-title"></ul>
             </div>
 
             <button class="button button-primary" type="submit">Open email draft <span aria-hidden="true">↗</span></button>

@@ -1564,10 +1564,34 @@ function initCopyEmail() {
 const CONTACT = {
   email: "ewidahabdullah@gmail.com",
   minMessage: 10,
+  jobTopic: "Internship or job opportunity", // This topic also asks for a company.
 };
 
 // A practical check: something@something.domain, with no spaces.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+// Common misspellings of popular email domains. Some still pass the pattern
+// above (like "gmail.co"), so they are offered as a suggestion, never forced.
+const EMAIL_DOMAIN_FIXES = {
+  "gmial.com": "gmail.com",
+  "gmai.com": "gmail.com",
+  "gamil.com": "gmail.com",
+  "gmail.co": "gmail.com",
+  "gmail.con": "gmail.com",
+  "hotmial.com": "hotmail.com",
+  "hotmail.co": "hotmail.com",
+  "outlok.com": "outlook.com",
+  "yaho.com": "yahoo.com",
+  "kfupm.edu": "kfupm.edu.sa",
+};
+
+// Returns the corrected address when the domain is a known typo, otherwise "".
+function suggestEmail(email) {
+  const at = email.lastIndexOf("@");
+  if (at < 1) return "";
+  const fix = EMAIL_DOMAIN_FIXES[email.slice(at + 1).toLowerCase()];
+  return fix ? `${email.slice(0, at)}@${fix}` : "";
+}
 
 // Each rule returns an error message, or an empty string when the value is fine.
 const FIELD_RULES = {
@@ -1579,6 +1603,11 @@ const FIELD_RULES = {
   email: (value) => {
     if (!value) return "Please enter your email address so I can reply.";
     if (!EMAIL_PATTERN.test(value)) return "This email address looks incomplete. Use the format name@example.com.";
+    return "";
+  },
+  company: (value) => {
+    if (!value) return "Please tell me which company or organization the opportunity is with.";
+    if (value.length < 2) return "The company name should be at least 2 characters long.";
     return "";
   },
   message: (value) => {
@@ -1602,13 +1631,22 @@ function initContactForm() {
   const topic = $("#topic");
   const counter = $("#message-count");
   const draftNotice = $("#draft-notice");
+  const companyField = $("#company-field");
+  const emailHint = $("#email-hint");
+  const checklist = $("#form-checklist");
   const fields = {
     name: $("#name"),
     email: $("#email"),
+    company: $("#company"),
     message: $("#message"),
   };
   const fieldNames = Object.keys(fields);
   const maxMessage = Number(fields.message.getAttribute("maxlength"));
+
+  // Rule: the company is required only for job and internship messages.
+  const needsCompany = () => topic.value === CONTACT.jobTopic;
+  const activeFields = () => fieldNames.filter((name) => name !== "company" || needsCompany());
+  const isFieldValid = (name) => FIELD_RULES[name](fields[name].value.trim()) === "";
 
   // Errors appear only after a visitor leaves a field or tries to submit,
   // so nobody is scolded while still typing their first word.
@@ -1641,6 +1679,43 @@ function initContactForm() {
     counter.classList.toggle("is-near-limit", length >= maxMessage * 0.9);
   }
 
+  // Shows or hides the company field to match the chosen topic. A hidden field
+  // also loses its error, so it can never block sending.
+  function updateCompanyField() {
+    const required = needsCompany();
+    companyField.hidden = !required;
+    fields.company.required = required;
+    if (!required) {
+      $("#company-error").textContent = "";
+      fields.company.removeAttribute("aria-invalid");
+      companyField.classList.remove("has-error");
+      touched.delete("company");
+    }
+  }
+
+  // "Did you mean …@gmail.com?" with a button that applies the fix.
+  function updateEmailHint() {
+    const suggestion = suggestEmail(fields.email.value.trim());
+    emailHint.hidden = !suggestion;
+    if (suggestion) $("#email-fix").textContent = suggestion;
+  }
+
+  // A live checklist of the required fields, ticked off as each becomes valid.
+  function updateChecklist() {
+    const names = activeFields();
+    const ready = names.filter(isFieldValid);
+    const list = $("ul", checklist);
+    list.textContent = "";
+    names.forEach((name) => {
+      const done = ready.includes(name);
+      const label = $(`label[for="${name}"]`).firstChild.textContent.trim();
+      list.append(createElement("li", { className: done ? "is-done" : "" }, [label, createElement("span", { className: "visually-hidden", text: done ? ": done" : ": still needed" })]));
+    });
+    const allReady = ready.length === names.length;
+    checklist.classList.toggle("is-ready", allReady);
+    $("#checklist-summary").textContent = allReady ? "Ready to send" : `${ready.length} of ${names.length} ready`;
+  }
+
   function showAlert(type, title, text, actions = []) {
     const alert = createElement("div", { className: `form-alert is-${type}` }, [
       createElement("span", { className: "alert-icon" }),
@@ -1667,7 +1742,7 @@ function initContactForm() {
   };
 
   const saveDraft = debounce(() => {
-    const draft = { name: fields.name.value, email: fields.email.value, topic: topic.value, message: fields.message.value };
+    const draft = { name: fields.name.value, email: fields.email.value, topic: topic.value, company: fields.company.value, message: fields.message.value };
     if (Object.values(draft).some((value) => value.trim())) {
       storage.set(STORAGE_KEYS.contactDraft, JSON.stringify(draft));
     } else {
@@ -1679,6 +1754,9 @@ function initContactForm() {
     form.reset();
     clearErrors();
     updateCounter();
+    updateCompanyField();
+    updateEmailHint();
+    updateChecklist();
     storage.remove(STORAGE_KEYS.contactDraft);
     draftNotice.hidden = true;
     status.textContent = "";
@@ -1692,12 +1770,14 @@ function initContactForm() {
     if (typeof draft.topic === "string") topic.value = draft.topic;
     draftNotice.hidden = !fieldNames.some((name) => fields[name].value.trim());
   }
+  updateCompanyField(); // A restored job-topic draft brings its company field back.
 
   // A signed-in visitor's name fills an empty Name field; it never replaces typing.
   store.subscribe(
     "visitorName",
     (visitorName) => {
       if (visitorName && !fields.name.value.trim()) fields.name.value = visitorName;
+      updateChecklist();
     },
     { now: true }
   );
@@ -1717,17 +1797,39 @@ function initContactForm() {
     field.addEventListener("input", () => {
       if (touched.has(name)) validateField(name);
       saveDraft();
+      updateChecklist();
     });
   });
 
   fields.message.addEventListener("input", updateCounter);
-  topic.addEventListener("change", saveDraft);
+
+  // Suggest a fix after the visitor leaves the field, not while they type;
+  // once shown, the hint follows their edits and disappears when fixed.
+  fields.email.addEventListener("blur", updateEmailHint);
+  fields.email.addEventListener("input", () => !emailHint.hidden && updateEmailHint());
+  $("#email-fix").addEventListener("click", () => {
+    fields.email.value = suggestEmail(fields.email.value.trim());
+    updateEmailHint();
+    if (touched.has("email")) validateField("email");
+    saveDraft();
+    updateChecklist();
+    fields.email.focus();
+  });
+
+  topic.addEventListener("change", () => {
+    updateCompanyField();
+    updateChecklist();
+    saveDraft();
+  });
 
   // This static site has no server, so a valid form opens a pre-filled email draft.
+  // Step 1: validate every active field. Step 2: stop on the first problem.
+  // Step 3: only when everything passes, build and open the email.
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    fieldNames.forEach((name) => touched.add(name));
-    const invalid = fieldNames.filter((name) => !validateField(name));
+    const names = activeFields();
+    names.forEach((name) => touched.add(name));
+    const invalid = names.filter((name) => !validateField(name));
 
     if (invalid.length > 0) {
       const which = invalid.length === 1 ? "the highlighted field" : `the ${invalid.length} highlighted fields`;
@@ -1739,8 +1841,9 @@ function initContactForm() {
     const name = fields.name.value.trim();
     const email = fields.email.value.trim();
     const message = fields.message.value.trim();
-    const subject = topic.value ? `${topic.value}: message from ${name}` : `Portfolio message from ${name}`;
-    const body = `${message}\n\n${name}\n${email}`;
+    const company = needsCompany() ? fields.company.value.trim() : "";
+    const subject = topic.value ? `${topic.value}: message from ${name}${company ? ` (${company})` : ""}` : `Portfolio message from ${name}`;
+    const body = `${message}\n\n${name}\n${company ? `${company}\n` : ""}${email}`;
 
     // The text stays in the form until the visitor clears it, in case the
     // email app does not open on their device.
@@ -1761,8 +1864,10 @@ function initContactForm() {
   });
 
   counter.hidden = false;
+  checklist.hidden = false;
   $("#draft-help").hidden = false;
   updateCounter();
+  updateChecklist();
 }
 
 /* ---------- Start ---------- */

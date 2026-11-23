@@ -1,20 +1,22 @@
 # Technical Documentation
 
-This document explains how the portfolio is built: its structure, how each interactive feature works, where data is stored, and the choices made for accessibility, performance, compatibility, and security. For setup and usage, see the [README](../README.md).
+This document explains how the portfolio works: its structure, the state store, the two API integrations, the multi-step logic, and the choices made for performance, compatibility, accessibility, and security. For setup and usage, see the [README](../README.md).
 
 ## Contents
 
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
-3. [Feature reference](#3-feature-reference)
-4. [Data and storage](#4-data-and-storage)
-5. [Styling system](#5-styling-system)
-6. [Accessibility](#6-accessibility)
-7. [Performance](#7-performance)
-8. [Compatibility](#8-compatibility)
-9. [Security and privacy](#9-security-and-privacy)
-10. [Testing](#10-testing)
-11. [Known limitations and next steps](#11-known-limitations-and-next-steps)
+3. [State management](#3-state-management)
+4. [API integration](#4-api-integration)
+5. [Complex logic](#5-complex-logic)
+6. [Features carried over from Assignment 2](#6-features-carried-over-from-assignment-2)
+7. [Data and storage](#7-data-and-storage)
+8. [Performance](#8-performance)
+9. [Compatibility](#9-compatibility)
+10. [Accessibility](#10-accessibility)
+11. [Security and privacy](#11-security-and-privacy)
+12. [Testing](#12-testing)
+13. [Known limitations and next steps](#13-known-limitations-and-next-steps)
 
 ---
 
@@ -23,11 +25,12 @@ This document explains how the portfolio is built: its structure, how each inter
 | | |
 | --- | --- |
 | Type | Static single-page website |
-| Languages | HTML5, CSS3, JavaScript (ES2020, no modules) |
-| Dependencies | None at runtime; `puppeteer-core` for optional tests only |
-| External service | GitHub REST API (`GET /users/abooodi123/repos`), no API key needed |
+| Languages | HTML5, CSS3, JavaScript (ES2020, one classic script, no modules) |
+| Runtime dependencies | None |
+| External services | GitHub REST API (`GET /users/abooodi123/repos`) and Open-Meteo forecast API (`GET /v1/forecast`), neither needs a key |
+| Test tools (optional) | `puppeteer-core` (in-page suites), Playwright (cross-browser), Lighthouse 12 |
 | Hosting | Any static host; GitHub Pages recommended |
-| Size | HTML 6.7 KB, CSS 9.2 KB, and JS 12.8 KB when compressed with gzip; 7 KB of SVG images |
+| Size (gzip) | HTML 8.8 KB, CSS 11.2 KB, JS 23.5 KB, plus 7 KB of SVG images |
 
 ---
 
@@ -35,276 +38,426 @@ This document explains how the portfolio is built: its structure, how each inter
 
 ### 2.1 Progressive enhancement
 
-The HTML is complete and readable on its own. JavaScript only *enhances* it:
+The HTML is complete and readable on its own, and JavaScript adds features on top of it.
 
 | Without JavaScript | With JavaScript |
 | --- | --- |
-| All four projects and their highlights are listed | Search, filters, sorting, collapsible highlights |
-| All three About panels are shown in order | Tabs with a sliding indicator |
-| The contact form uses the browser's built-in validation | Custom inline validation, drafts, and success messages |
-| A `<noscript>` message links to my GitHub profile | Live repository cards from the API |
-| Navigation links stay in the header | A collapsible menu on phones |
+| All projects, with dates, levels, highlights, and *In plain words* notes | Level views, search, filters, sorting, collapsible highlights |
+| All About panels in order | Tabs |
+| The browser's own form validation | Custom rules, the company field, typo hints, checklist, drafts |
+| A link to my GitHub profile | Live repository cards |
+| No weather card and no stats band (both need live data) | Live weather, countdown, time on page, and visits |
 
-Controls that only work with JavaScript, such as the project toolbar, tab buttons, details buttons, and copy button, are marked `hidden` in the HTML, and the script reveals them once it is ready. A small inline script in `<head>` adds a `js` class to `<html>`, and CSS uses `.js` to apply collapsed or hidden states only when they can be undone.
+Controls that only work with JavaScript start `hidden` in the HTML, and the script reveals them once it has set them up. A small inline script in `<head>` adds a `js` class to `<html>` and applies the saved theme before the first paint. CSS uses `.js` for any state that only JavaScript can undo, such as collapsed highlights or hidden plain-language notes.
 
-### 2.2 Files
+### 2.2 JavaScript structure
 
-| File | Responsibility |
-| --- | --- |
-| `index.html` | Content and semantic structure. The inline `<head>` script applies the saved theme before first paint. |
-| `css/styles.css` | Design tokens, then components in page order. Each component keeps its own responsive rules next to it. Ends with motion, print, and reduced-motion rules. |
-| `js/script.js` | Helpers at the top, one `init…` function per feature, and a start-up list at the bottom. |
-
-### 2.3 JavaScript structure
-
-`script.js` is a classic script loaded with `defer`. ES modules (`type="module"`) were considered but rejected, because browsers block module scripts on `file://` pages, and the README promises the site works by double-clicking `index.html`.
+`script.js` is one classic script loaded with `defer`. ES modules were not used, because browsers block module scripts on `file://` pages, and the site should open with a double-click.
 
 ```text
-Helpers           $, $$, storage, debounce, normalizeText, replayAnimation,
-                  createElement, timeAgo, prefersReducedMotion, onMediaChange
-Features          initTheme · initNavigation · initGreeting · initAboutTabs ·
-                  initProjectExplorer · initGitHubRepos · initCopyEmail ·
-                  initContactForm · initScrollEffects · initFooterYear
-Start-up          [...features].forEach(init => try { init() } catch { console.error })
+Helpers            $, $$, createSafeStorage, debounce, normalizeText, replayAnimation,
+                   createElement, timeAgo, onMediaChange
+Shared API code    apiError, fetchJson, createApiCache                       (new)
+State              STATE_SCHEMA, createStore → store                         (new)
+Features           initTheme · initNavigation · initGreeting · initWeather (new) ·
+                   initTimers (new) · initPersonalize (new) · initAboutTabs ·
+                   initProjectExplorer · initGitHubRepos · initCopyEmail ·
+                   initContactForm · initScrollEffects · initFooterYear
+Start-up           [...features].forEach(init => try { init() } catch { console.error })
 ```
 
-Each feature starts inside its own `try…catch`, so a failure in one (for example, an unexpected browser bug in the tabs) never stops the others from working.
+Each feature starts inside its own `try…catch`, so a failure in one feature never stops the others.
+
+### 2.3 How data flows
+
+```text
+visitor action ──► store.set(name, value) ──► validates, saves to localStorage
+                                              └─► notifies subscribers ──► features re-render
+another tab ─────► "storage" event ──────────► store reloads that value ──► same subscribers
+API ─────────────► fetchJson ─► createApiCache ─► feature state ─► render()
+```
 
 ---
 
-## 3. Feature reference
+## 3. State management
 
-### 3.1 Theme
+### 3.1 The store
 
-- **No flash of the wrong theme:** the inline `<head>` script reads `localStorage` (or `prefers-color-scheme`) and sets `data-theme` before the CSS paints anything. Assignment 1 did this after load, which caused a visible flash.
-- `initTheme` updates the button label ("Switch to light theme") and the `<meta name="theme-color">` used by mobile browser toolbars.
-- If the visitor has never chosen a theme, live changes to the system theme are followed.
-- Where `document.startViewTransition` exists, the switch cross-fades. Elsewhere it is instant.
+Everything the site remembers about a visitor is declared in one schema:
 
-### 3.2 Navigation
-
-- On screens 680 px wide or less, the links collapse into a panel opened by a **Menu** button (`aria-expanded`, `aria-controls`). It closes on Escape (returning focus to the button), on an outside click, on a link click, or when the screen widens.
-- An `IntersectionObserver` with `rootMargin: "-45% 0px -50% 0px"` watches a thin band across the middle of the screen. The section crossing that band gets `aria-current="true"` on its nav link, which also styles the highlight.
-
-### 3.3 Greeting and local time
-
-- `getGreeting(hour)` turns the visitor's local hour into "Good morning", "Good afternoon", "Good evening", or "Hello, night owl".
-- `Intl.DateTimeFormat` with `timeZone: "Asia/Riyadh"` shows my time in Dhahran. The first update is timed to the next minute boundary, then repeats every 60 s, so the clock never runs up to a minute late.
-
-### 3.4 About tabs
-
-This follows the [WAI-ARIA Tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/): `role="tablist"`, `tab`, and `tabpanel`, plus `aria-selected` and `aria-controls`.
-
-- **Roving tabindex:** only the selected tab has `tabindex="0"`, so the Tab key enters and leaves the tab list in one step, and **← → Home End** move between tabs.
-- The indicator is one absolutely positioned element moved with `transform: translateX(offsetLeft)` and `width`. Its transition is enabled one frame *after* the first placement, so it doesn't slide in from the left on load. Its position is recalculated (debounced) on resize.
-
-### 3.5 Project explorer
-
-Data comes straight from the HTML. Each `<article class="project-card">` carries:
-
-```html
-data-categories="iot embedded ai"  data-order="3"  data-status="completed"
-data-keywords="gesture esp32 imu tinyml mqtt …"
+```js
+const STATE_SCHEMA = {
+  theme:          { key: "portfolio-theme",           fallback: "system",  format: "text", isValid: … },
+  visitorName:    { key: "portfolio-visitor-name",    fallback: "",        format: "text", isValid: … },
+  hiddenSections: { key: "portfolio-hidden-sections", fallback: [],        format: "json", isValid: … },
+  githubForks:    { key: "portfolio-github-forks",    fallback: false,     format: "json", isValid: … },
+  projectView:    { key: "portfolio-project-view",    fallback: "all",     format: "text", isValid: … },
+  tempUnit:       { key: "portfolio-temp-unit",       fallback: "celsius", format: "text", isValid: … },
+  visits:         { key: "portfolio-visits",          fallback: 0,         format: "json", isValid: … },
+};
 ```
 
-On start-up, the script reads every card once into a `projects` array, along with a normalized `searchText`. That text is built only from the title, type, summary, tags, highlights, and keywords. Button labels are excluded, so typing "show" does not match every card.
+`createStore(schema)` returns a small publish/subscribe API:
 
-**State → render.** One `state` object (`query`, `filter`, `sort`) drives a single `render()` function:
+| Method | What it does |
+| --- | --- |
+| `get(name)` | Returns the current value from memory, without touching storage. |
+| `set(name, value)` | Rejects invalid values with a `TypeError`, saves the value (or removes the key when it equals the default), and notifies subscribers if it changed. |
+| `reset(name)` | Sets the default. |
+| `names()` | Lists every setting; used by *Reset all preferences*. |
+| `subscribe(name, fn, { now })` | Calls `fn(value)` on every change; with `now: true`, also right away. |
 
-1. Sort a copy of the array with `PROJECT_SORTERS[state.sort]`.
-2. Re-append each card in that order, so keyboard focus order always matches what is on screen.
-3. Hide cards that fail the filter or the search. **Every** search word must appear (AND search).
-4. Replay the entry animation only on cards that were hidden before, so existing cards don't flicker while you type.
-5. Update the chip counts, the "Showing X of Y" summary (an `aria-live` region), the empty state, and the URL.
+**Design choices:**
 
-**Details used:**
+- **Validate on load and on save.** A damaged or out-of-date saved value is replaced by its default. For example, `hiddenSections = "{not json"` or a visitor name of `<script>`.
+- **Defaults are not stored.** An empty `localStorage` means "all defaults". Resetting therefore clears the keys, which is what a privacy-minded visitor expects.
+- **Text values keep the Assignment 2 format.** The theme is stored as `dark`, not `"dark"`, so the inline `<head>` script can still read it before the first paint.
+- **Sync between tabs.** The browser fires a `storage` event in every *other* tab when `localStorage` changes. The store reloads the affected value and notifies the same subscribers. Because of this, no feature needs any extra code to stay in sync.
+- **Two paths for the project level.** A shared link like `?view=advanced` must take priority over the saved level without overwriting it. So `setView()` is called directly as well as through the store. If the visitor picks the level that is already saved, `store.set` sees no change, but the view must still update.
 
-- Typing is **debounced** by 120 ms, so the page re-renders once after a pause rather than on every keystroke.
-- `normalizeText()` lowercases, removes accents (`NFD` + strip `̀–ͯ`), and collapses spaces.
-- **URL sync:** `history.replaceState` writes `?q=…&area=…&sort=…`, leaving out default values. On load, those parameters are read back and validated against the known filters and sorts. Unknown values fall back to the defaults.
-- **The empty state explains why nothing matched.** If the search matches projects in other areas, it says so and tells the visitor to choose "All".
-- **Collapsible highlights** animate `grid-template-rows` from `0fr` to `1fr`, which works for content of any height without measuring it. `visibility: hidden` (switched after the collapse transition finishes) removes the collapsed content from the Tab order and from screen readers. All spacing lives *inside* the clipped wrapper, so a collapsed panel measures exactly 0 px.
-- Pressing **/** focuses the search box unless the visitor is already typing in a field, and **Escape** clears it.
+### 3.2 Simulated login (Personalize dialog)
 
-### 3.6 GitHub repositories (public API)
+- The header's person button opens a native `<dialog>` with `showModal()`. That gives focus trapping, **Escape** to close, and an inert background for free. A click on the backdrop also closes it.
+- **Sign in** checks the name with `checkVisitorName`:
+  - extra spaces are collapsed;
+  - the name must be 2–30 characters;
+  - only letters from any language, spaces, hyphens, apostrophes, and periods are allowed (`/^[\p{L}\p{M}][\p{L}\p{M} '.-]*$/u`).
+
+  This means an Arabic name like "عبدالله" works.
+- When `visitorName` changes, these features update through their subscriptions:
+
+  | Subscriber | What it shows |
+  | --- | --- |
+  | The header button | The visitor's initial on an accent circle |
+  | The greeting | "Good evening, Sara" |
+  | The visit note | "Welcome back, Sara." |
+  | The contact form | The name in an **empty** Name field (it never overwrites typing) |
+
+- **Sign out** resets `visitorName`, and the same subscribers undo their changes.
+
+### 3.3 Visible sections
+
+Elements marked `data-hideable="Label"` (the weather card, the stats band, the GitHub section) each get a switch in the dialog, created by the script. Hidden sections get the class `is-user-hidden` (`display: none !important`), and so does their navigation link, if they have one.
+
+A class is used instead of the `hidden` attribute so that each feature can still control its own `hidden` state, for example while loading, without the two interfering.
+
+A hidden GitHub section is never on screen, so its `IntersectionObserver` never fires and no API request is made.
+
+---
+
+## 4. API integration
+
+### 4.1 Shared helpers
+
+**`fetchJson(url, { timeoutMs, headers })`**, used by both APIs:
+
+1. If `navigator.onLine` is false, it throws `offline` straight away.
+2. An `AbortController` cancels the request after the timeout (`timeout`).
+3. If `fetch` rejects, the error is `network`.
+4. If the response is not OK:
+   - `429`, or `403` with `x-ratelimit-remaining: 0`, is `rate-limit` (with the reset time);
+   - `404` is `not-found`;
+   - anything else is `http` (with the status code).
+5. If the body is not valid JSON, the error is `http`.
+
+**`createApiCache(key, maxAgeMinutes, isValidData)`** returns `read()`, `write(data)`, and `isFresh(entry)`, and stores `{ savedAt, data }`. A damaged entry, or one that fails `isValidData`, is ignored.
+
+### 4.2 GitHub repositories
+
+These work as in Assignment 2: loaded when the section comes near the screen, cached for 30 minutes, with an older copy used as a fallback. They now use the shared helpers. The cache moved to a new key, `portfolio-github-repos`.
+
+Both assignment sites live on the same `abooodi123.github.io` origin and so share `localStorage`. With the new key, the two sites can't overwrite each other's cache in a different format.
+
+### 4.3 Dhahran weather (Open-Meteo)
 
 ```text
-page loads
-        │
-        ▼
-fresh cache (< 30 min)? ──yes──► render it immediately: no network request,
-        │ no                      and the cards are in the Tab order right away
-        ▼
-wait until the section is within 800 px of the screen (IntersectionObserver)
-        │
-        ▼
-show skeleton cards + "Loading…" ──► fetch with 10 s timeout (AbortController)
-        │                                   │
-   success ▼                          failure ▼
-save {savedAt, repos} to cache      older copy available? ──yes──► render it + explain how old it is
-render cards                              │ no
-                                          ▼
-                              friendly error + Try again + profile link
+GET https://api.open-meteo.com/v1/forecast?latitude=26.29&longitude=50.11
+    &current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day
+    &timezone=Asia/Riyadh
 ```
 
-**Error types and messages.** `fetchGitHubRepos()` throws errors tagged with a `kind`, and `describeGitHubError()` turns each kind into plain language:
+**Steps:**
 
-| Kind | Detected by | The visitor is told |
+1. **Read the cache.** A reading less than 15 minutes old is shown immediately with no request. The service itself updates its current values every 15 minutes.
+2. **Otherwise, show a skeleton** (or the older reading, if there is one), then fetch with an 8-second timeout.
+3. **Validate.** All five numbers must be finite, or the response is rejected as `http`. A visitor never sees "NaN°C".
+4. **Describe.** `describeWeatherCode(code, isDay)` turns the WMO weather code into words and an icon: clear (sun or moon), partly cloudy, overcast, fog, drizzle, rain, snow, or thunderstorm.
+5. **Add a remark.** `weatherRemark()` checks rules in order of importance, and the first match wins:
+   1. thunderstorm;
+   2. rain ("a rare sight in the Eastern Province");
+   3. 40 °C or hotter;
+   4. 30 °C or hotter with humidity of 70% or more;
+   5. 15 °C or cooler;
+   6. otherwise, no remark.
+6. **Units.** Data always arrives in °C, and `formatTemperature` converts it on the page, so changing `tempUnit` needs no request.
+7. **Errors.** With no saved copy, the card shows a specific message and **Try again**. With an older copy, it shows that copy and adds "Showing the reading from 2 hours ago."
+8. **Refreshing.** The card does not poll. When the visitor returns to the tab and the reading is stale, it reloads, and it retries when the `online` event fires. The "updated … ago" text is refreshed every minute while the tab is visible.
+
+| Error kind | Message on the weather card |
+| --- | --- |
+| `offline` | You're offline, so the Dhahran weather can't load. It will load once you reconnect. |
+| `timeout` | The weather service is slow to respond right now. |
+| `rate-limit` | The weather service is busy right now. |
+| `http`, `network`, `not-found` | The weather in Dhahran is unavailable right now. |
+
+---
+
+## 5. Complex logic
+
+### 5.1 Project explorer: level → area → search → sort
+
+Each card carries `data-date="2026-01"` and `data-level="intermediate"`, along with the Assignment 2 attributes. The dates are approximate, to the month.
+
+```js
+const isVisible = (project, { view, filter, terms }) =>
+  matchesView(project, view) && matchesFilter(project, filter) && matchesSearch(project, terms);
+```
+
+`PROJECT_VIEWS` holds each level's rules:
+
+| View | Shows levels | Plain-language notes | Highlights | Message |
+| --- | --- | --- | --- | --- |
+| `all` (Everyone) | beginner, intermediate, advanced | hidden | as the visitor left them | none |
+| `beginner` | beginner, intermediate | shown | closed | "New to engineering? …" |
+| `advanced` | intermediate, advanced | hidden | opened | "Here for the technical details? …" |
+
+**Sorting.** Sorters include `newest` and `oldest`. `"YYYY-MM"` strings sort correctly as plain text, and ties fall back to the featured order, so cards never jump around.
+
+**Empty-state diagnosis.** When nothing is visible, the code relaxes one step at a time:
+
+```text
+inOtherAreas  = projects visible if the area were "all"
+atOtherLevels = projects visible if the level were "all"
+both > 0  → "… Choose “All” areas to see N projects, or “Everyone” to see M."
+only area → "… N projects in other areas match. Choose “All” …"
+only level→ "… M projects at other levels match. Choose “Everyone” …"
+search    → "Nothing mentions “x”. Check the spelling …"
+otherwise → "There are no projects in this area yet."
+```
+
+The URL keeps `?q=`, `area=`, `sort=`, and `view=` (defaults are left out), so any view can be shared.
+
+### 5.2 Contact form rules
+
+| Step | Rule |
+| --- | --- |
+| Which fields are active | `activeFields()` = name, email, message, and **company only if** the topic is "Internship or job opportunity" |
+| Show or hide | `updateCompanyField()` reveals the field and makes it `required`. Hiding it also clears its error and its "touched" state, so a hidden field can never block sending. |
+| Live checklist | `updateChecklist()` checks every active field silently and ticks it off, showing "3 of 4 ready" or "Ready to send". |
+| Typo suggestion | `suggestEmail()` looks up the domain in `EMAIL_DOMAIN_FIXES` after the field loses focus. Some typos are valid addresses (`gmail.co`), so this is a suggestion with a one-click fix, never an error. |
+| Submit | 1) Validate every active field. 2) If any fails, show "Almost there" and focus the first invalid field. 3) Only when all pass, build the subject (with the company in brackets) and body, then open the `mailto:` draft. |
+
+The draft saved in `localStorage` includes the topic and company, and restoring a job-topic draft brings the company field back.
+
+### 5.3 Timers
+
+**One ticker.** `createTicker()` keeps a single 1-second `setInterval` for every counter. It stops on `visibilitychange` when the tab is hidden and restarts (with an immediate tick) when the tab is visible again.
+
+**Graduation countdown.** `graduationPhase(now)` returns one of three phases:
+
+| Phase | When | Display |
 | --- | --- | --- |
-| `offline` | `navigator.onLine === false` | They are offline; the list loads automatically once they reconnect (the `online` event triggers a retry) |
-| `timeout` | `AbortController` fires after 10 s | GitHub is slow; try again in a moment |
-| `rate-limit` | HTTP 403/429 with `x-ratelimit-remaining: 0` | The hourly limit was reached, with the reset time from `x-ratelimit-reset` |
-| `not-found` | HTTP 404 | The profile could not be found; use the profile link |
-| `http` | Any other non-OK status, or a response that isn't JSON | An unexpected error, with its status code |
-| `network` | `fetch` rejected (DNS, CORS, connection) | Check the connection, then try again |
+| `before` | before 1 Dec 2026, 00:00 Dhahran time (UTC+3) | `7d 19h 25m 10s`, with the units updated in place each second |
+| `during` | December 2026 | "This month!" |
+| `after` | from January 2027 | "Complete" |
 
-- Only the eight fields the page uses are kept from each repository, which keeps the cache small.
-- **Controls:** the *Include forks* switch (saved in `localStorage`), sorting by last push or by name, *Show all N repositories* (the first 6 are shown by default; expanding moves focus to the first newly shown card), and *Refresh* (skips the cache).
-- An "Updated 5 minutes ago" label is refreshed every minute using `Intl.RelativeTimeFormat`.
-- A visually hidden live region announces "Showing 2 of 2 repositories" to screen readers.
+The phase-dependent text is rebuilt only when the phase changes.
 
-### 3.7 Contact form and clipboard
+**Time on page.** This counts visible time only:
 
-- `form.noValidate = true` is set **by JavaScript**, so the browser's built-in validation still works when the script doesn't run.
-- `FIELD_RULES` maps each field to a function that returns an error message or `""`. Messages state the problem and the fix, for example *"This email address looks incomplete. Use the format name@example.com."*
-- **When errors appear:** a field is validated only after the visitor leaves it with text in it, or after a submit attempt. After that it re-validates on every keystroke, so the error disappears the moment it is fixed. Invalid fields get `aria-invalid="true"` and are linked to their message with `aria-describedby`.
-- **On submit with errors:** an animated "Almost there" alert appears and focus moves to the first invalid field.
-- **On success:** the site builds a `mailto:` link with an encoded subject (the topic, if one was chosen) and body, shows an animated confirmation, and opens the email app. **The text stays in the form** in case no email app opens, and the alert offers *Copy my message* and *Clear the form*.
-- The message is limited to 1,500 characters. Some email clients reject very long `mailto:` links, so the counter warns at 90%.
-- **Drafts** are saved to `localStorage` 400 ms after typing stops and restored on the next visit with a "Welcome back" notice and a *Discard draft* button.
-- `copyText()` uses `navigator.clipboard.writeText` on secure pages. Elsewhere, or if permission is denied, it falls back to a hidden `<textarea>` with `document.execCommand("copy")`, then returns focus to where it was. Results are confirmed with a toast (`role="status"`).
+```text
+elapsed = time banked from earlier visible stretches + (now − visibleSince, if visible)
+```
 
-### 3.8 Scroll effects and motion
+It uses `performance.now()`, which is not affected by changes to the system clock.
 
-- A single passive `scroll` listener, throttled with `requestAnimationFrame`, toggles the header shadow and the back-to-top button.
-- **Reveal:** an `IntersectionObserver` adds `.is-visible` once per block, then stops watching it. Blocks are faded with `opacity` and `transform` only, which the browser animates on the GPU without recalculating the layout.
-- The hero entrance and the decorative orbit, label, and toast animations are written in CSS.
-- **Reduced motion:** if the visitor asks for it, the script skips reveals and the theme cross-fade, and CSS shortens every animation and transition to 0.01 ms and stops the orbits.
+**Visits.** The `visits` count goes up once per browser session. A `sessionStorage` flag (`portfolio-visit-counted`) stops reloads from counting. The label uses `Intl.PluralRules({ type: "ordinal" })` for "1st, 2nd, 3rd, 4th…".
 
 ---
 
-## 4. Data and storage
+## 6. Features carried over from Assignment 2
 
-The `storage` wrapper catches the errors `localStorage` throws in some private windows. If storage is blocked, features keep working; they just don't remember anything.
+These are unchanged except where noted. Full details are in the Assignment 2 documentation.
 
-| Key (`STORAGE_KEYS`) | Value | Written when | Cleared when |
+- **Theme.** Applied before the first paint, with a View Transitions cross-fade. *New:* three choices (light, dark, system), and no cross-fade in hidden tabs, because the browser would abort it.
+- **Navigation.** A collapsible menu on phones and the current section highlighted with `IntersectionObserver`.
+- **Greeting and Dhahran clock.** *New:* the greeting includes the visitor's name.
+- **About tabs.** The WAI-ARIA tabs pattern with a roving tabindex. *New:* the first indicator measurement waits one frame (see §8).
+- **Contact form base.** Inline validation, drafts, a success message, and copying the email address.
+- **Motion.** Scroll reveals and hover effects, with everything respecting `prefers-reduced-motion`.
+
+---
+
+## 7. Data and storage
+
+Every `localStorage` and `sessionStorage` access goes through `createSafeStorage`, which catches the errors some private windows throw. If storage is blocked, the site keeps working in memory.
+
+| Key | Where | Value | Cleared by |
 | --- | --- | --- | --- |
-| `portfolio-theme` | `"light"` or `"dark"` | The theme button is clicked | Never (the visitor can toggle it) |
-| `portfolio-github-forks` | `"true"` or `"false"` | The forks switch changes | Never |
-| `portfolio-github-cache` | `{ savedAt, repos[] }` (about 2 KB) | After a successful API call | Replaced by the next successful call |
-| `portfolio-contact-draft` | `{ name, email, topic, message }` | 400 ms after typing stops | Discard draft, Clear the form, or the form becomes empty |
-
-All values are parsed defensively: corrupt JSON or values of the wrong type are ignored.
+| `portfolio-theme` | local | `light` / `dark` (missing = system) | Choosing "Match my device"; Reset |
+| `portfolio-visitor-name` | local | text, 2–30 letters | Sign out; Reset |
+| `portfolio-hidden-sections` | local | JSON array of ids | Turning sections back on; Reset |
+| `portfolio-project-view` | local | `beginner` / `advanced` | Choosing "Everyone"; Reset |
+| `portfolio-temp-unit` | local | `fahrenheit` (missing = °C) | Choosing °C; Reset |
+| `portfolio-github-forks` | local | `true` | Turning forks off; Reset |
+| `portfolio-visits` | local | integer | Reset |
+| `portfolio-github-repos` | local | `{ savedAt, data: repos[] }` | Replaced on the next load |
+| `portfolio-weather` | local | `{ savedAt, data: reading }` | Replaced on the next load |
+| `portfolio-contact-draft` | local | `{ name, email, topic, company, message }` | Discard draft; Clear the form |
+| `portfolio-visit-counted` | session | `"1"` | Closing the tab |
 
 ---
 
-## 5. Styling system
+## 8. Performance
 
-- **Design tokens** on `:root` define every color, shadow, and radius. `:root[data-theme="dark"]` redefines them, so components never hard-code theme colors. The contact band stays dark in both themes, so it has its own `--contact-*` tokens. In Assignment 1 this band inverted in dark mode and its text lost contrast.
-- **Layout** uses CSS Grid for page sections, cards, and repository lists, and Flexbox for toolbars, chips, and form rows.
-- **Breakpoints:** 900 px (tablet) and 680 px (phone), plus a small 380 px adjustment. Each component keeps its own breakpoints next to it.
-- **Hover effects** are inside `@media (hover: hover)`, so touch screens don't get "stuck" hover states.
-- **Print styles** hide the interactive controls and show all content, including collapsed highlights.
+### 8.1 Measured results
 
-| Desktop (1280 px) | Phone (390 px) |
+Lighthouse 12, run on a local server:
+
+| Run | Performance | FCP | LCP | TBT | CLS |
+| --- | --- | --- | --- | --- | --- |
+| Mobile, before the performance branch | 98 | 1.1 s | 2.1 s | 100 ms | 0.002 |
+| Mobile, after (3 runs, identical) | **100** | 1.1 s | **1.9 s** | **0 ms** | **0.001** |
+| Desktop, after | **100** | 0.5 s | 0.5 s | 0 ms | 0 |
+
+Accessibility, Best Practices, and SEO scored 100 in every run.
+
+### 8.2 What was fixed, and why it worked
+
+**The forced reflow (87 ms).** `initAboutTabs` read `tab.offsetWidth` during start-up, right after other features had changed the page. The browser had to stop the script and lay out the whole page before it could answer. The first measurement now happens in `requestAnimationFrame`, when the layout is already being calculated, so it costs nothing extra. The first `scrollY` read in `initScrollEffects` was deferred the same way.
+
+**Layout shift from the weather card.** The card used to grow from one line ("Checking…") to three or four lines when the data arrived. The heights were measured at six widths, and two changes fixed it:
+
+1. The loading state is now a skeleton with the same parts as a reading.
+2. `min-height` reserves a typical reading's height at each breakpoint.
+
+Loading and loaded heights now match at every width tested. Only the optional remark line adds height.
+
+**Resource hints.** `preconnect` to `api.open-meteo.com`, which is used straight away, and `dns-prefetch` for `api.github.com`, which is used later.
+
+### 8.3 Other measures
+
+| Measure | Benefit |
 | --- | --- |
-| ![Desktop](screenshots/desktop-light.png) | ![Phone](screenshots/mobile-light.png) |
+| No frameworks, libraries, or web fonts | Nothing extra to download or parse |
+| CSS in `<head>`, script with `defer` | The script never blocks HTML parsing |
+| Shared `fetchJson`, `createApiCache`, `createTicker` | No repeated code; one 1-second timer instead of three |
+| Ticker and weather refresh pause in hidden tabs | No background CPU or network use |
+| API caches (GitHub 30 min, weather 15 min) | Repeat visits render instantly and send no requests |
+| GitHub API called only near its section | Visitors who never scroll there (or hide it) make no request |
+| WebP screenshots, compact SVG illustrations, unused PNGs removed | 195 KB of documentation images instead of 444 KB; 7 KB of site images |
+| `width`/`height` on images, lazy loading | No layout shift from images |
+| Debounced search and resize, rAF-throttled scroll | Little work per frame |
 
----
-
-## 6. Accessibility
-
-- **Landmarks and structure:** a skip link, `header`, `nav`, `main`, and `footer`; one `h1`; and headings in order in each section.
-- **Keyboard:** every control is a native `button`, `a`, `input`, or `select`. Focus rings appear on keyboard focus (`:focus-visible`). Shortcuts are **/** for search, **Esc** to close menus and clear search, and the arrow keys, **Home**, and **End** in the tabs. *Back to top* also moves focus to the main heading.
-- **Screen readers:**
-  - Live regions announce result counts, repository loading, form status, and toasts.
-  - `aria-expanded` is set on the menu, highlights, and *Show all* buttons, and `aria-pressed` on the filter chips.
-  - `aria-invalid` and `aria-describedby` link form fields to their errors.
-  - Decorative SVGs have `aria-hidden="true"`.
-- **Accessible names match visible text,** so voice-control users can say what they see. The brand link reads "AE. Abdullah Ewidah, back to top", using visually hidden text instead of an `aria-label`.
-- **Contrast:** text colors meet WCAG AA in both themes.
-- **Motion:** the site respects `prefers-reduced-motion` (see §3.8).
-- **Result:** Lighthouse accessibility score of 100 on mobile and desktop.
-
----
-
-## 7. Performance
-
-| Measure | Why it helps |
-| --- | --- |
-| No frameworks, libraries, or web fonts | Nothing extra to download; system fonts render immediately |
-| CSS in `<head>`, script with `defer` | The script never blocks the page from drawing |
-| `width`/`height` on every image, plus `loading="lazy"` and `decoding="async"` | No layout shift (CLS 0); images below the screen load only when needed |
-| Small vector images (SVG, 7 KB total) | Sharp at any size with almost no bytes |
-| GitHub API called only when its section nears the screen | Visitors who never scroll there cost no network request |
-| 30-minute API cache | Repeat visits render instantly and stay well under GitHub's 60 requests per hour |
-| Debounced search and resize, rAF-throttled scroll | Little work per frame; total blocking time of 0 ms |
-| Animating only `opacity` and `transform` | Smooth animations that don't make the browser redo the layout |
-
-**Lighthouse 12 (local server):** Performance 100 on both mobile and desktop. Mobile timings were FCP 1.1 s, LCP 1.6 s, TBT 0 ms, and CLS 0.
-
-Two items flagged by Lighthouse are deliberate:
+**Left as is on purpose:**
 
 - The code is not minified, so markers can read it.
-- Compression and cache headers depend on the host. GitHub Pages compresses files automatically; Python's test server does not.
+- Compression and cache headers depend on the host. GitHub Pages compresses files, but Python's test server does not, so Lighthouse lists "enable text compression" when testing locally.
+- The "unused CSS/JS" that Lighthouse reports is the styling and code for states not shown on first load, such as dialogs, errors, and empty states.
 
 ---
 
-## 8. Compatibility
+## 9. Compatibility
+
+### 9.1 Tested
+
+`tests/cross-browser.js` (Playwright) runs the same checks in each browser engine at desktop size and on a phone-sized touch screen. Both APIs are simulated so that only the browser varies.
+
+| Browser | Engine | Version | Desktop | Phone |
+| --- | --- | --- | --- | --- |
+| Chrome | Chromium | 157 | 14/14 | 15/15 |
+| Edge | Chromium | 158 | 14/14 | 15/15 |
+| Firefox | Gecko | 159 | 14/14 | 15/15 |
+| WebKit | WebKit (Safari) | 27.2 | 14/14 | 15/15 |
+
+The checks cover:
+
+- horizontal overflow;
+- both APIs;
+- the countdown ticking;
+- the theme being remembered;
+- the `<dialog>` with Escape;
+- the Unicode name check;
+- the Beginner view with Newest-first sorting;
+- the company rule, empty-submit errors, and the email hint;
+- the phone menu;
+- no JavaScript errors.
+
+The in-page suites also checked widths from 320 px to 1440 px.
+
+### 9.2 Features used, and fallbacks
 
 | Feature | Used for | Fallback |
 | --- | --- | --- |
-| `IntersectionObserver` | Reveals, active nav, lazy API call | Content is shown immediately and the API loads right away |
-| View Transitions API | Theme cross-fade | Instant theme switch |
-| `navigator.clipboard` | Copy buttons | Hidden `textarea` with `execCommand("copy")` |
-| `MediaQueryList.addEventListener` | Theme and layout changes | `addListener` for Safari before version 14 |
-| `history.replaceState` on `file://` | Shareable filter URLs | Wrapped in `try`; filtering still works |
-| `backdrop-filter` | Frosted header | A semi-opaque background color |
-| `grid-template-rows` transition | Highlight animation | The panel opens instantly |
-| `-webkit-line-clamp` | Two-line repository descriptions | The description shows in full |
-
-**Tested in:** Google Chrome and Microsoft Edge (Chromium) on Windows 11, at 320, 390, 768, 1024, 1280, and 1440 px wide, in both themes, with no horizontal scrolling at any width. Firefox and Safari have not been tested directly. The code avoids browser-specific APIs and includes the vendor prefixes they need (`-webkit-backdrop-filter`, `-webkit-appearance`).
-
----
-
-## 9. Security and privacy
-
-- **No HTML injection:** text from outside the code is never inserted with `innerHTML`. That includes what the visitor types and every field returned by the GitHub API. The `createElement` helper always uses `textContent`. The only `innerHTML` and `insertAdjacentHTML` calls insert fixed icon SVGs written in the code.
-- **Link safety:** repository links are used only if they start with `https://github.com/`; otherwise they point to my profile. Every link that opens a new tab has `rel="noopener noreferrer"`.
-- **No secrets:** the GitHub API is called without a login, so no token exists to leak.
-- **Privacy:** the site has no analytics, cookies, or server. Form drafts stay in the visitor's own browser, and the message travels only through the visitor's email app.
+| `<dialog>` + `showModal()` | Personalize | Without support, the button stays hidden |
+| Unicode property escapes (`\p{L}`) | Name check | Supported by all browsers tested |
+| `Intl.PluralRules`, `Intl.RelativeTimeFormat`, `Intl.DateTimeFormat` | Ordinals, "3 minutes ago", Dhahran time | Supported by all browsers tested |
+| `storage` event | Sync between tabs | Without it, each tab still works on its own |
+| `AbortController` | Request timeouts | Supported by all browsers tested |
+| View Transitions API | Theme cross-fade | Instant switch; never used in hidden tabs |
+| `IntersectionObserver` | Reveals, active nav, lazy GitHub request | Content shown and loaded immediately |
+| `navigator.clipboard` | Copy buttons | Hidden `textarea` + `execCommand("copy")` |
+| `MediaQueryList.addEventListener` | Theme and layout changes | `addListener` for older Safari |
 
 ---
 
-## 10. Testing
+## 10. Accessibility
 
-### Automated (`tests/`, 63 checks)
+New parts follow the same rules as Assignment 2. Lighthouse Accessibility scores 100.
 
-Run `npm install`, then `npm test` inside `tests/`. The tests open the real `index.html` in headless Chrome or Edge through `puppeteer-core`.
-
-| Suite | Covers |
-| --- | --- |
-| `projects.test.js` | `/` shortcut, live search, Escape, filters and counts, empty state and reset, sorting, highlights open and closed (0 px when collapsed), URL deep links |
-| `github.test.js` | Live API load, forks switch and its saved setting, Show all and focus, cache reuse (no second request), simulated rate limit, HTTP 500 and network failure with retry, forks-only empty state, stale-cache fallback |
-| `contact.test.js` | No errors while tabbing, empty submit, live error clearing, email format, counter, draft restore, success message, Clear, copy button |
-| `about.test.js` | Greeting and clock, tabs by mouse and keyboard, roving tabindex, indicator position, **page with JavaScript disabled** |
-| `keyboard.test.js` | Tabs through the whole page at 1280 px and 390 px; every stop must be on screen and show a focus ring |
-| `motion.test.js` | Every reveal finishes, header shadow, back to top, theme saved across reloads, mobile menu (Escape and focus), no horizontal overflow, at 1280 px and 390 px |
-
-### Manual checklist
-
-1. Tab through the whole page with the keyboard only. Every control should be reachable and show a focus ring.
-2. Resize from 320 px to 1440 px. There should be no horizontal scroll or clipped text.
-3. Toggle the theme and reload. The choice should persist with no flash.
-4. In DevTools, set **Network → Offline**, reload, and open the GitHub section. A friendly message should appear. Go back online and the list should load by itself.
-5. Turn on **Emulate CSS prefers-reduced-motion** in DevTools. The page should be still.
-6. Disable JavaScript. All content should still be readable.
+- **The Personalize dialog** uses a native modal `<dialog>`, labeled by its heading. Focus is trapped while it is open and returns to the button when it closes. Escape closes it.
+- **Radio groups** (level, temperature unit, and theme) are real radio inputs styled as pills, so the arrow keys work and the focus ring is visible.
+- **Timers** use `role="timer"`, which screen readers don't announce on every tick. The countdown has real spaces between its units, so it is read as "7d 19h 25m", not "7d19h25m". The tests caught this.
+- **The level message** is an `aria-live="polite"` region, so changing the level is announced.
+- **The email suggestion** is linked to the field with `aria-describedby`. Each checklist item has visually hidden text ("Name: done" or "Company: still needed").
+- **Keyboard:** the keyboard test tabs through the whole page at 1280 px and 390 px. Every stop must be on screen and show a focus ring.
 
 ---
 
-## 11. Known limitations and next steps
+## 11. Security and privacy
 
-- **No backend for the contact form.** It relies on the visitor's email app; *Copy my message* covers people without one. A future assignment could add a serverless form endpoint.
-- **GitHub's rate limit** is per network. On a shared campus network the limit may be reached; the site then explains this and shows any cached copy.
-- **Project data lives in the HTML.** With many more projects, moving it to a JSON file and rendering it with a template would scale better.
-- **Firefox and Safari** should be tested directly before the final portfolio assignment.
+- **No HTML injection.** API data and anything a visitor types are always inserted with `textContent` (through `createElement`). The only `innerHTML` calls insert fixed icon markup written in the code, such as the weather icons.
+- **Validated input.** Every saved value is checked before use, so a value planted in `localStorage` (for example, a "name" of `<script>`) is ignored.
+- **Safe links.** Repository links must start with `https://github.com/`. Links that open a new tab use `rel="noopener noreferrer"`.
+- **No secrets and no tracking.** Neither API needs a key. There are no cookies or analytics, and preferences stay in the visitor's browser. Signing in only stores a first name locally; nothing is sent anywhere.
+
+---
+
+## 12. Testing
+
+### 12.1 In-page suites (`npm test`): 178 checks
+
+| Suite | Checks | Covers |
+| --- | --- | --- |
+| `state.test.js` *(new)* | 24 | Store, sign in and out, name rules, theme choices, hidden sections, values kept after a reload, sync between tabs, damaged values, reset, phone dialog |
+| `levels.test.js` *(new)* | 25 | Level rules, date sorting, combined filters, every empty-state cause, the URL and saved level, invalid `?view=` |
+| `weather.test.js` *(new)* | 26 | Live API, cache, °C/°F, remarks, simulated 500/429/network/bad data/non-JSON/timeout, retry, stale copy, hiding, no JavaScript |
+| `timers.test.js` *(new)* | 17 | All countdown phases with a simulated clock, the last second before December, pause while hidden, visits across sessions, one shared 1-second timer |
+| `form-rules.test.js` *(new)* | 22 | Company rule, blocked submit, mailto subject and body (captured through the DevTools protocol), draft restore, typo hints, checklist |
+| `projects.test.js`, `github.test.js`, `contact.test.js`, `about.test.js`, `keyboard.test.js`, `motion.test.js` | 64 | The Assignment 2 suites (63 checks, plus one for the restored company field), updated for the new features |
+
+If GitHub's hourly limit for the network is used up, the live GitHub checks print `SKIP`, and the runner counts them separately.
+
+### 12.2 Cross-browser (`npm run test:browsers`): 116 checks
+
+See §9.1.
+
+### 12.3 Bugs the tests found
+
+| Found by | Problem | Fix |
+| --- | --- | --- |
+| `state.test.js` | When the theme changed in another tab, the hidden tab tried to cross-fade. The browser aborts transitions in hidden documents, so the theme never switched and an error was thrown. | Cross-fade only when `document.visibilityState === "visible"` |
+| `levels.test.js` | "Web + Advanced" blamed only the area, although the level also removed results | Relax each step separately, and offer both fixes when both apply |
+| `timers.test.js` | The countdown text had no real spaces ("7d19h25m") | Insert text spaces between the units |
+| Lighthouse | An 87 ms forced reflow at start-up, and a small layout shift | §8.2 |
+| `contact.test.js` (Assignment 2) | An old test now failed because the job topic needs a company | The rule was working as designed, so the test was updated to fill in the company |
+
+---
+
+## 13. Known limitations and next steps
+
+- **No backend.** The contact form relies on the visitor's email app, and "sign in" is only a name stored on the device, not a real account. A future assignment could add a serverless form endpoint and real authentication.
+- **Approximate dates.** Project dates are accurate to the month.
+- **Graduation date.** The countdown targets the start of December 2026, my expected graduation month, not a specific ceremony date.
+- **GitHub's rate limit** is per network, so on a busy shared network it may be reached. The site explains this and shows any cached copy.
+- **Safari itself.** Safari was not tested directly; WebKit, its engine, was tested on Windows. A check on a real iPhone or Mac would complete the picture.

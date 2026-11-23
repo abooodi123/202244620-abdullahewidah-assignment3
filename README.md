@@ -1,119 +1,130 @@
-# Abdullah Ewidah — Interactive Portfolio
+# Abdullah Ewidah — Portfolio with Advanced Functionality
 
-My personal portfolio website for **SWE 363, Assignment 2: Interactive Features**. It builds on my [Assignment 1 portfolio](https://github.com/abooodi123/202244620-abdullahewidah-assignment1). The static page is now an interactive site: you can search and filter projects, see live data from the GitHub API, use a contact form with validation and saved drafts, and see smooth, accessible motion throughout.
+My personal portfolio website for **SWE 363, Assignment 3: Advanced Functionality**. It builds on my [Assignment 2 portfolio](https://github.com/abooodi123/202244620-abdullahewidah-assignment2). This version adds:
+
+- live data from a second public API: the weather in Dhahran;
+- a central state store that remembers each visitor and keeps open tabs in sync;
+- multi-step logic: reader levels, date sorting, and conditional form rules;
+- live timers;
+- a performance pass guided by Lighthouse.
 
 It is written in plain HTML, CSS, and JavaScript, with no frameworks, libraries, or build step.
 
-**Live site:** https://abooodi123.github.io/202244620-abdullahewidah-assignment2/
+**Live site:** https://abooodi123.github.io/202244620-abdullahewidah-assignment3/
 
-![Portfolio home page in the light theme](docs/screenshots/desktop-light.png)
+![Portfolio home page in the light theme, with live Dhahran weather and the stats band](docs/screenshots/desktop-light.webp)
 
 ---
 
 ## Contents
 
-- [What's new since Assignment 1](#whats-new-since-assignment-1)
-- [Features](#features)
+- [What's new in Assignment 3](#whats-new-in-assignment-3)
+- [Features by requirement](#features-by-requirement)
 - [Run it locally](#run-it-locally)
 - [How to use the site](#how-to-use-the-site)
 - [Project structure](#project-structure)
 - [Testing and quality](#testing-and-quality)
+- [Performance](#performance)
 - [Browser support](#browser-support)
 - [AI use (summary)](#ai-use-summary)
 - [Documentation](#documentation)
 
 ---
 
-## What's new since Assignment 1
+## What's new in Assignment 3
 
-Assignment 2 started from an unchanged copy of Assignment 1. That was the first commit, so `git diff` shows every change. I treated Assignment 1 as a draft and fixed its weak spots before adding features.
+The first commit is an unchanged copy of Assignment 2, so `git diff 285135e` shows every change. Each feature was built on its own branch and merged with `--no-ff`, so the history shows one merge per feature.
 
-| Area | Assignment 1 | Assignment 2 |
+| Area | Assignment 2 | Assignment 3 |
 | --- | --- | --- |
-| Projects | 3 static cards | 4 projects with live search, area filters, sorting, expandable highlights, an empty state, and shareable filter URLs |
-| Data | Theme saved in `localStorage` | Live GitHub API data with a 30-minute cache, saved form drafts, and remembered preferences |
-| Contact form | Browser validation bubbles | Inline, specific error messages, a character counter, draft autosave and restore, a success message, and a copy-email button |
-| About | One paragraph | Accessible tabs: Overview, Skills, Education |
-| Motion | None | Scroll reveals, hover feedback, a hero entrance, and a theme cross-fade, all switched off for reduced-motion users |
-| Mobile navigation | Links squeezed into the header | Collapsible menu with Escape and outside-click support |
-| Dark mode | The contact section turned light with low-contrast text | Dedicated color tokens with readable contrast in both themes |
-| Theme loading | Page flashed the wrong theme before JavaScript ran | Saved theme applied before the first paint |
-| Code | Project cards written as single-line HTML | Formatted markup; JavaScript split into small, isolated features |
-| Testing | Manual checklist | 63 automated browser checks and Lighthouse audits |
+| External APIs | GitHub repositories | GitHub **and** live Dhahran weather (Open-Meteo), sharing one fetch helper and one cache helper |
+| State | A few separate `localStorage` keys | One **state store** with a schema, validation, subscriptions, and sync across tabs |
+| Visitor | Anonymous | **Sign in** with a name (simulated login), personal greeting, visit counter |
+| Projects | Search, area filter, 3 sort orders | Adds **reader levels** (Beginner / Advanced), **dates**, Newest and Oldest sorting, and smarter empty states |
+| Contact form | Validation and drafts | Adds a **conditional Company field**, an **email typo suggestion**, and a live **checklist** |
+| Timers | Dhahran clock | Adds a **graduation countdown**, **time on page**, and a shared ticker that pauses in background tabs |
+| Customization | Theme toggle | A **Personalize** dialog: sign in, three theme choices, show or hide sections, reset everything |
+| Performance | Lighthouse mobile 100 | New features first cost 2 points (98); fixed back to **100** with 0 ms blocking time |
+| Browsers tested | Chrome, Edge | Chrome, Edge, **Firefox**, and **WebKit (Safari's engine)**, on desktop and phone sizes |
+| Automated checks | 63 | **178** in-page checks + **116** cross-browser checks |
 
 ---
 
-## Features
+## Features by requirement
 
-Each assignment requirement is covered by at least one feature. Most are covered by several.
+### 2. API integration
 
-### Dynamic content (requirement 2)
+- **GitHub REST API:** my public repositories, with a forks switch, sorting, *Show all*, and *Refresh*. Results are cached for 30 minutes.
+- **Open-Meteo weather API (new):** the current weather in Dhahran, shown next to my local time: temperature, conditions, feels-like, humidity, and wind. It also shows a short local remark, such as "A classic Eastern Province scorcher." It is free and needs no API key. Readings are cached for 15 minutes, and switching between °C and °F needs no new request.
+- **User-friendly errors:** both APIs share one helper, `fetchJson`. It has an offline check and a timeout, and it tags each error with a kind: offline, timeout, rate limit, not found, server error, or network. Each kind gets its own plain-language message and a **Try again** button. Bad or non-JSON data is rejected instead of showing "NaN°C". If a refresh fails, an older saved copy is shown and labeled with its age.
 
-- **Live project search.** Results filter while you type, so `esp32`, `python`, or `mqtt` narrow the list instantly. Search ignores case and accents and accepts several words.
-- **Area filters.** All, AI / ML, Embedded, IoT, and Web. Each chip shows how many results it would give for the current search.
-- **Sorting.** Featured, Name (A–Z), or In progress first.
-- **Expand or collapse highlights** on every project card.
-- **Shareable views.** Filters are saved in the URL, e.g. `?area=iot&q=mqtt`.
-- **About tabs:** Overview, Skills, and Education, with full keyboard support.
-- **Personal touches.** The site greets you by your time of day ("Good morning") and shows my current local time in Dhahran.
+### 3. Complex logic
 
-### Data handling (requirement 3)
+- **Projects you can filter *and* sort:** pick a level, an area, and a search term, then sort, for example Web → Newest first. Every step runs through one function, `isVisible`, so the chip counts, the summary, and the URL always agree.
+- **Different content for different visitors:**
+  - **Beginner** shows the beginner and intermediate projects, and adds an *In plain words* explanation to each card.
+  - **Advanced** shows the intermediate and advanced projects and opens their technical highlights.
+  - Each level has its own message.
+- **Empty states that find the real cause:** when nothing matches, the site checks one step at a time (area, then level) to find what removed the results. If both are to blame, it offers both fixes.
+- **Contact form with extra checks:**
+  - Choosing *Internship or job opportunity* reveals a required **Company** field.
+  - Common email typos (`gmial.com`, `gmail.co`, …) get a one-click *Did you mean …?* suggestion.
+  - A live checklist ticks off each required field.
+  - The form opens an email draft only after every active field passes.
+- **Timers and counters:**
+  - **Graduation countdown:** counts down to December 2026 and has three phases (before, during, after).
+  - **Time on page:** counts only while the tab is in front.
+  - **Visit counter:** reloads don't count as new visits.
 
-- **Public API:** my public repositories are loaded from the [GitHub REST API](https://docs.github.com/en/rest/repos/repos#list-repositories-for-a-user). You can include or hide forks, sort them, and show all of them.
-- **localStorage:** stores the theme, the include-forks preference, a 30-minute cache of GitHub results, and contact form drafts.
-- **Form validation** with a clear confirmation message.
+### 4. State management
 
-### Animation and transitions (requirement 4)
+- **One store for everything remembered** (`createStore` in `script.js`). Each value has a storage key, a default, and a validity check. Features subscribe to the values they use and re-render when those values change.
+- **Simulated login and logout:** sign in with just a name in the Personalize dialog. The site then greets you by name, shows your initial in the header, welcomes you back on later visits, and fills in the contact form's Name field. Signing out removes the name.
+- **Light, dark, or match my device**, remembered with no flash of the wrong theme on load.
+- **Show or hide sections:** the weather card, the stats band, and the GitHub section. A hidden section's navigation link is hidden too.
+- **Remembered choices:** the reader level, the temperature unit, and the forks switch, plus a **Reset all preferences** button.
+- **Tabs stay in sync:** change the theme or sign in in one tab, and every other open tab updates within a moment.
 
-- Sections fade in as they scroll into view, and the hero copy rises in line by line.
-- Cards lift on hover, filtered cards animate in, and highlights slide open.
-- Success and error messages animate in. The error message also shakes briefly, and the success check mark draws itself.
-- Switching the theme cross-fades the page in browsers that support the View Transitions API.
-- **Everything respects `prefers-reduced-motion`.** Visitors who ask for less motion get a still page.
+### 5. Performance
 
-### Error handling and user feedback (requirement 5)
-
-- **Loading:** skeleton cards and a "Loading repositories from GitHub…" message.
-- **API errors:** a specific message for each problem (offline, timeout, rate limit, not found, or server error), each with **Try again** and a link to my GitHub profile. If GitHub fails but an older copy is cached, the site shows that copy and explains how old it is.
-- **Empty states:** "No projects found" explains *why* nothing matched and offers a reset. The GitHub section explains when only forks exist and offers to show them.
-- **Form errors:** each field says what is wrong and how to fix it, and the message clears as soon as you fix it.
-- **Toasts:** short messages confirm actions such as "Email address copied" or "Draft discarded".
+See [Performance](#performance) below: Lighthouse **100** on mobile and desktop, after removing a forced layout and a layout shift that the new features had introduced.
 
 ---
 
 ## Run it locally
 
-You need a modern web browser. Nothing has to be installed.
+You only need a modern web browser. Nothing has to be installed to run the site.
 
 ### Option 1: open the file (quickest)
 
 1. Download the repository: click **Code → Download ZIP** on GitHub and unzip it, or clone it:
    ```bash
-   git clone https://github.com/abooodi123/202244620-abdullahewidah-assignment2.git
-   cd 202244620-abdullahewidah-assignment2
+   git clone https://github.com/abooodi123/202244620-abdullahewidah-assignment3.git
+   cd 202244620-abdullahewidah-assignment3
    ```
 2. Double-click `index.html` to open it in your browser.
 
 ### Option 2: use a local web server (closest to the live site)
 
-Run **one** of these from the project folder, then visit the address it prints:
+Run **one** of these from the project folder, then open the address it prints:
 
 ```bash
 python -m http.server 8000        # then open http://localhost:8000
 npx serve .                       # needs Node.js; then open the URL it prints
 ```
 
-In VS Code, you can also right-click `index.html` and choose **Open with Live Server** (this needs the Live Server extension).
+In VS Code you can also right-click `index.html` and choose **Open with Live Server** (this needs the Live Server extension).
 
 ### Good to know
 
-- The **GitHub section needs an internet connection.** Offline, it shows a friendly message and loads automatically once you reconnect.
-- GitHub allows **60 requests per hour** for visitors without a GitHub login. The site caches results for 30 minutes, so normal browsing stays well under that limit.
-- The **contact form opens your email app** with a ready-to-send draft. The site has no server, so nothing is sent until you press Send in your email app. If no email app is set up, use **Copy my message** or the **Copy** button next to my email address.
+- **The weather and GitHub sections need an internet connection.** Offline, each shows a friendly message and loads by itself once you reconnect.
+- **GitHub allows 60 requests per hour** for visitors who are not logged in. The site caches results for 30 minutes, so normal browsing stays well under that limit. If the limit is reached (for example, on a busy shared network), the site says so, shows when to try again, and offers a link to my profile.
+- **Your preferences stay in your browser.** Your name, theme, and choices are saved in `localStorage` on your own device and never sent anywhere. *Personalize → Reset all preferences* removes them.
+- **The contact form opens your email app** with a ready-to-send draft. The site has no server, so nothing is sent until you press Send in your email app.
 
 ### Publish with GitHub Pages (optional)
 
-In the repository, go to **Settings → Pages**. Under **Build and deployment**, choose **Deploy from a branch**, then select `main` and `/ (root)`, and save. After a minute or two the site will be at the live link above.
+In the repository, open **Settings → Pages**. Under **Build and deployment**, choose **Deploy from a branch**, select `main` and `/ (root)`, and click **Save**. After a minute or two, the site appears at the live link above.
 
 ---
 
@@ -121,36 +132,43 @@ In the repository, go to **Settings → Pages**. Under **Build and deployment**,
 
 | To… | Do this |
 | --- | --- |
-| Switch light or dark theme | Click the sun or moon button in the header. Your choice is remembered. |
-| Search projects | Type in the project search box, or press **/** anywhere to jump to it. **Esc** clears it. |
-| Filter projects | Click an area chip. The number on each chip shows how many projects match. |
-| Read more about a project | Click **Show highlights** on a card. |
-| Share a filtered view | Copy the address bar after filtering. It includes your search and filter. |
-| Browse About tabs by keyboard | Tab to the tabs, then use **← →**, **Home**, and **End**. |
-| See forked repositories | Turn on **Include forks** in the GitHub section. The setting is remembered. |
-| Get the newest GitHub data | Click **Refresh** (results are otherwise reused for 30 minutes). |
-| Send me a message | Fill in the form and click **Open email draft**. Unsent text is saved in your browser. |
-| Return to the top | Use the ↑ button in the bottom-right corner. |
+| Sign in so the site greets you | Click the **person icon** in the header, type your first name, and click **Sign in**. No password is needed. |
+| Sign out or reset everything | Open the same dialog and click **Sign out**, or **Reset all preferences**. |
+| Switch the theme | Click the sun or moon button, or choose **Light**, **Dark**, or **Match my device** in Personalize. |
+| Hide the weather, stats, or GitHub section | In Personalize, turn the switch under **Show on the page** off. |
+| See °F instead of °C | Click **°F** on the weather card. Your choice is remembered. |
+| See projects for your level | Under **Your level**, choose **Beginner** (plain-language explanations) or **Advanced** (technical highlights open). |
+| Sort projects by date | In **Sort**, choose **Newest first** or **Oldest first**. It combines with the level, area, and search. |
+| Search projects | Type in the search box, or press **/** anywhere to jump to it. **Esc** clears it. |
+| Share a filtered view | Copy the address bar. It includes your level, area, search, and sort, for example `?view=advanced&sort=newest`. |
+| Ask me about a job or internship | Choose that topic in the contact form; a **Company** field appears. The checklist shows what is still needed. |
+| Get the newest data | Click **Refresh** in the GitHub section or **Try again** on any error message. |
 
-![Project explorer filtered to Embedded, in the dark theme](docs/screenshots/projects-dark.png)
+| Reader levels and dates (dark theme) | Personalize dialog (signed in) |
+| --- | --- |
+| ![Projects in the Advanced view, dark theme](docs/screenshots/projects-dark.webp) | ![The Personalize dialog with a signed-in visitor](docs/screenshots/personalize-dark.webp) |
+
+| Contact form rules | Phone layout |
+| --- | --- |
+| ![The company field, email suggestion, and checklist](docs/screenshots/contact-rules.webp) | ![The home page on a phone](docs/screenshots/mobile-light.webp) |
 
 ---
 
 ## Project structure
 
 ```text
-202244620-abdullahewidah-assignment2/
-├── index.html                  # Page structure and content (works without JavaScript)
+202244620-abdullahewidah-assignment3/
+├── index.html                  # Page structure and content (readable without JavaScript)
 ├── css/
 │   └── styles.css              # Design tokens, components, responsive rules, motion
 ├── js/
-│   └── script.js               # All interactive features, one init function each
+│   └── script.js               # Helpers, the state store, and one init function per feature
 ├── assets/
-│   └── images/                 # Project illustrations and favicon (SVG)
+│   └── images/                 # Project illustrations and favicon (SVG, 7 KB in total)
 ├── docs/
-│   ├── ai-usage-report.md      # How AI tools were used, checked, and corrected
+│   ├── ai-usage-report.md      # AI tools, usage log, and declaration
 │   ├── technical-documentation.md
-│   └── screenshots/            # Images used in this README
+│   └── screenshots/            # Images used in this README (WebP)
 ├── tests/                      # Optional automated browser tests (Node.js)
 ├── .gitattributes              # Consistent line endings across operating systems
 ├── .gitignore
@@ -161,74 +179,117 @@ In the repository, go to **Settings → Pages**. Under **Build and deployment**,
 
 ## Testing and quality
 
-### Automated browser tests (optional)
+### Automated in-page tests (optional)
 
-The `tests/` folder drives the real page in headless Chrome or Edge and runs **63 checks** across six suites. They cover:
+`tests/` drives the real page in headless Chrome or Edge with Puppeteer: **178 checks in 11 suites**. The five new suites cover Assignment 3:
 
-- the project explorer;
-- the GitHub section, with simulated failures: rate limit, server error, network error, and empty data;
-- contact form validation and drafts;
-- tabs, keyboard support, and the no-JavaScript fallback;
-- motion, the theme toggle, and the mobile menu;
-- a keyboard-only pass through the whole page.
+| Suite | What it checks |
+| --- | --- |
+| `state.test.js` | Sign in and out, rejected names, theme choices, hidden sections, values kept after a reload, **sync between two tabs**, damaged saved values, reset |
+| `levels.test.js` | Beginner and Advanced rules, date sorting, how level, area, and search combine, every empty-state explanation, a shared link taking priority over the saved level |
+| `weather.test.js` | Live API, unit conversion, cache reuse, remarks, simulated **500, 429, network failure, bad data, non-JSON, and timeout**, retry, an older copy, hiding the card, no JavaScript |
+| `timers.test.js` | Every countdown phase with a **simulated clock** (including the last second before December), pause while hidden, visit counting across sessions, exactly one 1-second timer |
+| `form-rules.test.js` | Company rule, blocked submission, email suggestions, checklist, and the subject and body of the email draft |
 
 ```bash
 cd tests
-npm install     # installs puppeteer-core, which uses your installed Chrome or Edge
-npm test
+npm install     # installs puppeteer-core (uses your installed Chrome or Edge) and Playwright
+npm test        # the 11 in-page suites
 ```
 
-If your browser is installed somewhere unusual, set `CHROME_PATH` to its executable first.
+If GitHub's hourly limit for your network is used up, the live GitHub checks report **SKIP** instead of failing, and the simulated failures still run.
 
-### Lighthouse (Chrome DevTools)
+### Cross-browser tests (optional)
 
-These scores were measured on a local server with Lighthouse 12:
+```bash
+cd tests
+npx playwright install firefox webkit    # one-time download of the test browsers
+npm run test:browsers
+```
+
+This runs the main features in **Chrome, Edge, Firefox, and WebKit** at desktop size and on a phone-sized touch screen. Every browser passed all **116 checks** with no JavaScript errors (see [Browser support](#browser-support)).
+
+### Lighthouse
+
+See [Performance](#performance).
+
+---
+
+## Performance
+
+Measured with Lighthouse 12 on a local server (three mobile runs, with identical results):
 
 | | Performance | Accessibility | Best practices | SEO |
 | --- | --- | --- | --- | --- |
 | Mobile | 100 | 100 | 100 | 100 |
 | Desktop | 100 | 100 | 100 | 100 |
 
-Mobile timings were: first contentful paint 1.1 s, largest contentful paint 1.6 s, total blocking time 0 ms, cumulative layout shift 0.
+The new features first lowered the mobile score to 98, so I fixed what Lighthouse reported:
 
-### Other checks
+| Metric (mobile) | Before the fix | After |
+| --- | --- | --- |
+| Total blocking time | 100 ms | **0 ms** |
+| Forced layout during start-up | 87 ms | **none** |
+| Largest contentful paint | 2.1 s | **1.9 s** |
+| Cumulative layout shift | 0.002 | **0.001** |
 
-Scripted browser runs also checked the site at 320, 390, 768, 1024, 1280, and 1440 px wide in both themes, with no horizontal scrolling at any width. They also covered reduced motion, JavaScript turned off, and the browser in offline mode. Offline, the GitHub section shows its message and loads by itself when the connection returns. Every text color pair meets WCAG AA contrast (at least 4.5:1) in both themes.
+What made the difference:
+
+- **No forced layout at start-up.** Measurements of the page (the tab indicator, the scroll position) wait for the next animation frame.
+- **A stable weather card.** The weather loads with a skeleton that has the same parts as a real reading, and the card keeps a reserved height, so nothing jumps when the data arrives.
+- **Faster API calls.** The page connects to the weather API early and starts the GitHub DNS lookup ahead of time.
+- **Lighter images.** Screenshots are WebP, 195 KB for five images instead of 444 KB for three PNGs. Unused images were removed.
+- **Less background work.** One shared 1-second timer drives every counter and stops while the tab is hidden. The weather refreshes when you come back to the tab instead of polling in the background.
+- **No GitHub request when it isn't needed.** The GitHub API is called only when its section is near the screen. A section you have hidden makes no request at all.
+
+Gzip sizes: HTML 8.8 KB, CSS 11.2 KB, JS 23.5 KB. There are no fonts, frameworks, or libraries to download.
 
 ---
 
 ## Browser support
 
-The site was tested in **Google Chrome** and **Microsoft Edge** on Windows, at desktop and phone sizes. It uses standard, widely supported features (ES2020 JavaScript, CSS Grid and Flexbox, `IntersectionObserver`, `fetch`). Newer features are only used where the browser supports them, so older browsers still get a working page:
+| Browser (engine) | Version tested | Desktop | Phone size |
+| --- | --- | --- | --- |
+| Google Chrome (Chromium) | 157 | ✅ 14/14 | ✅ 15/15 (iPhone 13 emulation) |
+| Microsoft Edge (Chromium) | 158 | ✅ 14/14 | ✅ 15/15 (iPhone 13 emulation) |
+| Mozilla Firefox (Gecko) | 159 | ✅ 14/14 | ✅ 15/15 (390 px touch window) |
+| WebKit (Safari's engine) | 27.2 | ✅ 14/14 | ✅ 15/15 (iPhone 13 emulation) |
 
-- The View Transitions API is used only if present.
-- The Clipboard API falls back to an older copy method.
-- Very old Safari versions get the older media-query listener.
+These tests ran on Windows. WebKit is the engine inside Safari, but it is not Safari itself, so a check on a real iPhone or Mac is still worth doing.
 
-Firefox and Safari should work, but I haven't tested them directly yet.
+Newer features are used only where the browser supports them, so older browsers still get a working page:
 
-Without JavaScript, every project, highlight, and About panel stays visible, and the contact form uses the browser's own validation.
+- **View Transitions:** used only if present, and never in background tabs.
+- **`<dialog>`:** browsers without it simply don't show the Personalize button.
+- **Clipboard API:** falls back to an older copy method.
+- **Without JavaScript:** every project and About panel stays readable. The weather card and stats band, which need JavaScript, are hidden.
 
 ---
 
 ## AI use (summary)
 
-I built this assignment together with **Claude Code**, Anthropic's AI coding assistant, in VS Code. We worked on every part together:
+I built this assignment with **Claude Code** (Anthropic, Claude Opus 5.5 model) in VS Code, in one conversation. I gave it the assignment brief and my project dates, and it:
 
-- auditing Assignment 1;
-- planning the features and the branch structure;
-- building and refactoring the HTML, CSS, and JavaScript;
-- writing the automated browser tests and running Lighthouse;
-- writing this documentation.
+- read my Assignment 1 and 2 work;
+- planned the features and branches;
+- wrote the code, the tests, and these documents;
+- ran every test suite, Lighthouse, and the cross-browser checks.
 
-We tested every feature in a real browser and fixed the problems we found. Those included a "collapsed" panel that was still 33 px tall, a search that matched button labels, and accessibility issues carried over from Assignment 1. The full report covers our workflow, the problems we fixed, and how the key code works: [docs/ai-usage-report.md](docs/ai-usage-report.md).
+The testing found **real bugs**, and they were fixed before merging:
+
+- a theme switch that failed in background tabs;
+- a countdown that screen readers read as "7d19h";
+- an empty-state message that blamed the wrong filter;
+- a forced layout costing 87 ms on phones.
+
+Every AI-assisted commit has an `Assisted-by:` line. The full report, with the usage log and my declaration, is in [docs/ai-usage-report.md](docs/ai-usage-report.md). The complete conversation and the intermediate artifacts are in the AI Evidence ZIP submitted on Blackboard, which is not in this repository.
 
 ---
 
 ## Documentation
 
-- [Technical documentation](docs/technical-documentation.md): architecture, data flow, storage, accessibility, performance, security, and known limitations.
-- [AI usage report](docs/ai-usage-report.md): the tools used, how they were used, the mistakes found, and what I learned.
+- [Technical documentation](docs/technical-documentation.md): architecture, the state store, API integration, logic flows, performance, compatibility, security, testing, and limitations.
+- [AI usage report](docs/ai-usage-report.md): tools, use cases, benefits and challenges, what I learned, responsible use, the usage log, and the declaration.
 
 ---
 

@@ -101,6 +101,27 @@
         </div>
       </section>
 
+      <!-- Live counters, driven by one shared timer in script.js (hidden without JavaScript). -->
+      <section class="stats-band" id="stats" aria-label="Countdown and visit stats" data-hideable="Countdown and visit stats">
+        <div class="container stats-grid">
+          <div class="stat">
+            <p class="stat-label" id="countdown-label">Countdown to my graduation month</p>
+            <p class="stat-value countdown" id="countdown" role="timer" aria-labelledby="countdown-label"></p>
+            <p class="stat-note" id="countdown-note"></p>
+          </div>
+          <div class="stat">
+            <p class="stat-label" id="time-label">Your time on this page</p>
+            <p class="stat-value" id="time-on-page" role="timer" aria-labelledby="time-label">0s</p>
+            <p class="stat-note">Counted only while this tab is in front.</p>
+          </div>
+          <div class="stat">
+            <p class="stat-label">Your visits</p>
+            <p class="stat-value" id="visit-count"></p>
+            <p class="stat-note" id="visit-note"></p>
+          </div>
+        </div>
+      </section>
+
       <section class="section about-section" id="about" aria-labelledby="about-title">
         <div class="container two-column">
           <div class="section-heading">

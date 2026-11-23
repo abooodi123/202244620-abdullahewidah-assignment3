@@ -11,6 +11,7 @@ const STORAGE_KEYS = {
   githubCache: "portfolio-github-repos",
   weatherCache: "portfolio-weather",
   contactDraft: "portfolio-contact-draft",
+  visitCounted: "portfolio-visit-counted", // sessionStorage: reloads are not new visits.
 };
 
 /* ---------- Small helpers ---------- */
@@ -48,6 +49,7 @@ function createSafeStorage(areaName) {
 }
 
 const storage = createSafeStorage("localStorage"); // Kept across visits.
+const sessionStore = createSafeStorage("sessionStorage"); // Cleared when the tab closes.
 
 // Waits until calls stop for `wait` ms, so typing does not re-render on every key.
 function debounce(callback, wait) {
@@ -207,6 +209,7 @@ const STATE_SCHEMA = {
   githubForks: { key: "portfolio-github-forks", fallback: false, format: "json", isValid: (value) => typeof value === "boolean" },
   projectView: { key: "portfolio-project-view", fallback: "all", format: "text", isValid: isOneOf("all", "beginner", "advanced") },
   tempUnit: { key: "portfolio-temp-unit", fallback: "celsius", format: "text", isValid: isOneOf("celsius", "fahrenheit") },
+  visits: { key: "portfolio-visits", fallback: 0, format: "json", isValid: (value) => Number.isInteger(value) && value >= 0 },
 };
 
 // A tiny publish/subscribe store. Features read values with get(), change them
@@ -582,6 +585,146 @@ function initWeather() {
   setInterval(() => document.visibilityState === "visible" && state.entry && !state.loading && render(), 60 * 1000);
 
   load();
+}
+
+/* ---------- Timers: graduation countdown, time on page, and visits ---------- */
+
+const GRADUATION = {
+  // My expected graduation is December 2026, so the countdown runs to the
+  // first moment of that month in Dhahran (UTC+3).
+  monthStart: new Date("2026-12-01T00:00:00+03:00"),
+  monthEnd: new Date("2027-01-01T00:00:00+03:00"),
+};
+
+const pad = (number) => String(number).padStart(2, "0");
+
+// Splits milliseconds into whole days, hours, minutes, and seconds.
+function splitDuration(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return {
+    days: Math.floor(total / 86400),
+    hours: Math.floor((total % 86400) / 3600),
+    minutes: Math.floor((total % 3600) / 60),
+    seconds: total % 60,
+  };
+}
+
+// "1h 05m 09s", "2m 14s", or "9s": leading zero units are left out.
+function formatElapsed(ms) {
+  const { days, hours, minutes, seconds } = splitDuration(ms);
+  const totalHours = days * 24 + hours;
+  if (totalHours > 0) return `${totalHours}h ${pad(minutes)}m ${pad(seconds)}s`;
+  if (minutes > 0) return `${minutes}m ${pad(seconds)}s`;
+  return `${seconds}s`;
+}
+
+// Decides which of three phases the countdown is in for a given time.
+function graduationPhase(now) {
+  if (now < GRADUATION.monthStart.getTime()) return { phase: "before", remaining: GRADUATION.monthStart.getTime() - now };
+  if (now < GRADUATION.monthEnd.getTime()) return { phase: "during" };
+  return { phase: "after" };
+}
+
+const ordinalRules = new Intl.PluralRules("en", { type: "ordinal" });
+const ORDINAL_SUFFIXES = { one: "st", two: "nd", few: "rd", other: "th" };
+const ordinal = (number) => `${number}${ORDINAL_SUFFIXES[ordinalRules.select(number)]}`;
+
+// One shared one-second ticker for every live counter. It pauses while the tab
+// is hidden (nobody can see it, so it would only waste battery) and catches up
+// as soon as the tab is visible again.
+function createTicker() {
+  const listeners = new Set();
+  let timer = null;
+  const tick = () => listeners.forEach((listener) => listener(Date.now()));
+
+  function start() {
+    if (timer !== null || document.visibilityState !== "visible") return;
+    tick();
+    timer = setInterval(tick, 1000);
+  }
+
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  document.addEventListener("visibilitychange", () => (document.visibilityState === "visible" ? start() : stop()));
+
+  return {
+    add(listener) {
+      listeners.add(listener);
+      listener(Date.now());
+      start();
+    },
+  };
+}
+
+function initTimers() {
+  const ticker = createTicker();
+
+  /* Countdown: three phases, each with its own display. */
+  const countdown = $("#countdown");
+  const countdownNote = $("#countdown-note");
+  const units = ["days", "hours", "minutes", "seconds"].map((unit, index) => {
+    const number = createElement("strong");
+    // A real space between units, so screen readers say "7d 19h", not "7d19h".
+    if (index > 0) countdown.append(" ");
+    countdown.append(createElement("span", { className: "countdown-unit" }, [number, createElement("span", { text: unit.charAt(0) })]));
+    return { unit, number };
+  });
+  let lastPhase = "";
+
+  ticker.add((now) => {
+    const { phase, remaining } = graduationPhase(now);
+    if (phase === "before") {
+      const parts = splitDuration(remaining);
+      units.forEach(({ unit, number }) => (number.textContent = unit === "days" ? String(parts.days) : pad(parts[unit])));
+    }
+    if (phase === lastPhase) return; // The rest only changes when the phase does.
+    lastPhase = phase;
+    countdown.classList.toggle("is-finished", phase !== "before");
+    if (phase === "before") {
+      countdownNote.textContent = "Until December 2026 begins in Dhahran.";
+    } else {
+      countdown.textContent = phase === "during" ? "This month!" : "Complete";
+      countdownNote.textContent = phase === "during" ? "December 2026 is my expected graduation month." : "My expected graduation month, December 2026, has passed.";
+    }
+  });
+
+  /* Time on page: only time with the tab in front counts. */
+  const timeOnPage = $("#time-on-page");
+  let shownMs = 0; // Time already counted from earlier visible stretches.
+  let visibleSince = document.visibilityState === "visible" ? performance.now() : null;
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      visibleSince = performance.now();
+    } else if (visibleSince !== null) {
+      shownMs += performance.now() - visibleSince;
+      visibleSince = null;
+    }
+  });
+
+  ticker.add(() => {
+    const elapsed = shownMs + (visibleSince === null ? 0 : performance.now() - visibleSince);
+    timeOnPage.textContent = formatElapsed(elapsed);
+  });
+
+  /* Visits: counted once per browser session, so reloading does not add one. */
+  if (!sessionStore.get(STORAGE_KEYS.visitCounted)) {
+    store.set("visits", store.get("visits") + 1);
+    sessionStore.set(STORAGE_KEYS.visitCounted, "1");
+  }
+
+  const renderVisits = () => {
+    const visits = Math.max(1, store.get("visits"));
+    const name = store.get("visitorName");
+    $("#visit-count").textContent = `${ordinal(visits)} visit`;
+    if (visits === 1) $("#visit-note").textContent = name ? `Nice to meet you, ${name}!` : "Welcome! Glad you found my portfolio.";
+    else $("#visit-note").textContent = name ? `Welcome back, ${name}.` : "Welcome back! Sign in with the person icon to be greeted by name.";
+  };
+  store.subscribe("visits", renderVisits);
+  store.subscribe("visitorName", renderVisits, { now: true });
 }
 
 /* ---------- Personalize dialog: sign in, theme, and visible sections ---------- */
@@ -1624,7 +1767,7 @@ function initContactForm() {
 
 /* ---------- Start ---------- */
 
-[initTheme, initNavigation, initGreeting, initWeather, initPersonalize, initAboutTabs, initProjectExplorer, initGitHubRepos, initCopyEmail, initContactForm, initScrollEffects, initFooterYear].forEach((init) => {
+[initTheme, initNavigation, initGreeting, initWeather, initTimers, initPersonalize, initAboutTabs, initProjectExplorer, initGitHubRepos, initCopyEmail, initContactForm, initScrollEffects, initFooterYear].forEach((init) => {
   try {
     init();
   } catch (error) {

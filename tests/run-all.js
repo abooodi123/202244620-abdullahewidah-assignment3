@@ -12,6 +12,7 @@ fs.mkdirSync(screenshots, { recursive: true });
 const files = fs.readdirSync(__dirname).filter((file) => file.endsWith(".test.js"));
 let passed = 0;
 let failed = 0;
+let skipped = 0; // Live checks skipped when an outside service is unavailable.
 
 for (const file of files) {
   console.log(`\n▶ ${file}`);
@@ -25,7 +26,8 @@ for (const file of files) {
   process.stdout.write(output);
   passed += (output.match(/^PASS /gm) || []).length;
   failed += (output.match(/^FAIL /gm) || []).length;
+  skipped += (output.match(/^SKIP /gm) || []).length;
 }
 
-console.log(`\n${passed} checks passed, ${failed} failed. Screenshots: ${screenshots}`);
+console.log(`\n${passed} checks passed, ${failed} failed${skipped ? `, ${skipped} skipped` : ""}. Screenshots: ${screenshots}`);
 process.exit(failed > 0 ? 1 : 0);

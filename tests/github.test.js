@@ -44,21 +44,30 @@ const statusText = (page) => page.$eval("#repo-status", (el) => el.textContent.t
   const skeletons = await page.$$eval(".repo-card.is-skeleton", (s) => s.length);
   const loadingMsg = await statusText(page);
   console.log("  while loading:", skeletons, "skeletons |", loadingMsg);
-  await page.waitForSelector("#repo-grid .repo-card:not(.is-skeleton)", { timeout: 15000 });
-  console.log("  live repos (forks hidden):", await repoNames(page));
-  console.log("  updated:", await page.$eval("#repo-updated", (e) => e.textContent), "| announcer:", await page.$eval("#repo-announcer", (e) => e.textContent));
-  check("live load renders repos", (await repoNames(page)).length > 0);
-  await page.click(".switch");
-  await wait(200);
-  const withForks = await repoNames(page);
-  console.log("  with forks:", withForks, "| more button:", await page.$eval("#repo-more", (b) => (b.hidden ? "hidden" : b.textContent)));
-  check("forks pref saved", (await page.evaluate(() => localStorage.getItem("portfolio-github-forks"))) === "true");
-  const moreHidden = await page.$eval("#repo-more", (b) => b.hidden);
-  if (!moreHidden) {
-    await page.click("#repo-more");
+  await page.waitForSelector("#repo-grid .repo-card:not(.is-skeleton), .notice-error", { timeout: 15000 });
+
+  // GitHub allows 60 requests an hour per network without a login. Running the
+  // tests many times can use that up; the site then (correctly) shows its
+  // rate-limit message, and the live checks are skipped rather than failed.
+  const liveError = await page.$(".notice-error");
+  if (liveError && (await statusText(page)).includes("limit")) {
+    console.log(`SKIP live GitHub checks: this network's hourly GitHub limit is used up. The site showed: "${await statusText(page)}"`);
+    await page.close();
+  } else {
+    console.log("  live repos (forks hidden):", await repoNames(page));
+    console.log("  updated:", await page.$eval("#repo-updated", (e) => e.textContent), "| announcer:", await page.$eval("#repo-announcer", (e) => e.textContent));
+    check("live load renders repos", (await repoNames(page)).length > 0);
+    await page.click(".switch");
     await wait(200);
-    check(`show all expands (${(await repoNames(page)).length})`, (await repoNames(page)).length === withForks.length || (await repoNames(page)).length > 6);
-    console.log("  focus after expand:", await page.evaluate(() => document.activeElement.textContent));
+    const withForks = await repoNames(page);
+    console.log("  with forks:", withForks, "| more button:", await page.$eval("#repo-more", (b) => (b.hidden ? "hidden" : b.textContent)));
+    check("forks pref saved", (await page.evaluate(() => localStorage.getItem("portfolio-github-forks"))) === "true");
+    const moreHidden = await page.$eval("#repo-more", (b) => b.hidden);
+    if (!moreHidden) {
+      await page.click("#repo-more");
+      await wait(200);
+      check(`show all expands (${(await repoNames(page)).length})`, (await repoNames(page)).length === withForks.length || (await repoNames(page)).length > 6);
+      console.log("  focus after expand:", await page.evaluate(() => document.activeElement.textContent));
   }
   await page.evaluate(() => document.querySelector("#github").scrollIntoView());
   await wait(400);
@@ -72,6 +81,7 @@ const statusText = (page) => page.$eval("#repo-status", (el) => el.textContent.t
   check("forks toggle restored from storage", await page.$eval("#repo-forks", (i) => i.checked));
   console.log("  errors:", errors);
   await page.close();
+  }
 
   // 2. Failure modes without cache
   for (const mode of ["ratelimit", "500", "network"]) {

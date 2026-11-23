@@ -1020,6 +1020,119 @@ h1 em {
   }
 }
 
+/* ---------- Stats band: countdown, time on page, visits ---------- */
+
+/* Live counters need JavaScript, so the band only appears with it. */
+.stats-band {
+  display: none;
+}
+
+.js .stats-band {
+  display: block;
+  border-block: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+}
+
+.stat {
+  padding: 1.6rem 1.5rem;
+}
+
+.stat + .stat {
+  border-left: 1px solid var(--line);
+}
+
+.stat p {
+  margin: 0;
+}
+
+.stat-label {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.stat-value {
+  margin: 0.4rem 0 0.2rem !important;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.countdown {
+  display: flex;
+  gap: 0.85rem;
+}
+
+.countdown-unit {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.1rem;
+}
+
+.countdown-unit span {
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+@media (max-width: 900px) {
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stat:first-child {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .stat:nth-child(2) {
+    border-left: 0;
+  }
+}
+
+@media (max-width: 680px) {
+  .stats-grid {
+    width: 100%;
+  }
+
+  .stat {
+    padding: 1.2rem 1rem;
+  }
+
+  .stat-value {
+    font-size: 1.4rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stat + .stat {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .stat:first-child {
+    border-bottom: 0;
+  }
+}
+
 /* ---------- About ---------- */
 
 .about-section {

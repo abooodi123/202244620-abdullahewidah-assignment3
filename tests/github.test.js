@@ -102,7 +102,7 @@ const statusText = (page) => page.$eval("#repo-status", (el) => el.textContent.t
 
   // 4. Stale cache + failure -> shows saved copy with explanation
   ({ page } = await openPage(browser, { mode: "500" }));
-  await page.evaluate(() => localStorage.setItem("portfolio-github-cache", JSON.stringify({ savedAt: Date.now() - 3 * 3600e3, repos: [{ name: "saved-repo", description: "", url: "https://github.com/x/saved-repo", language: "C", stars: 2, fork: false, archived: false, pushedAt: new Date().toISOString() }] })));
+  await page.evaluate(() => localStorage.setItem("portfolio-github-repos", JSON.stringify({ savedAt: Date.now() - 3 * 3600e3, data: [{ name: "saved-repo", description: "", url: "https://github.com/x/saved-repo", language: "C", stars: 2, fork: false, archived: false, pushedAt: new Date().toISOString() }] })));
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.evaluate(() => document.querySelector("#github").scrollIntoView());
   await page.waitForSelector(".notice-error", { timeout: 15000 });

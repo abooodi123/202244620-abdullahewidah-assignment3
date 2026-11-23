@@ -58,8 +58,8 @@ const OUT = process.argv[3] || ".";
   check("switch generated for GitHub", Boolean(githubSwitch));
   await page.click('#prefs-sections input[data-section="github"]');
   await wait(100);
-  check("github section hidden", await page.$eval("#github", (s) => s.hidden));
-  check("github nav link hidden", await page.$eval('.nav-links a[href="#github"]', (a) => a.parentElement.hidden));
+  check("github section hidden", await page.$eval("#github", (s) => s.classList.contains("is-user-hidden")));
+  check("github nav link hidden", await page.$eval('.nav-links a[href="#github"]', (a) => a.parentElement.classList.contains("is-user-hidden")));
 
   // Escape closes the dialog (native modal behaviour).
   await page.keyboard.press("Escape");
@@ -69,7 +69,7 @@ const OUT = process.argv[3] || ".";
   // Everything survives a reload.
   await page.reload({ waitUntil: "networkidle0" });
   check("name remembered after reload", (await text("#greeting")).includes("Sara"));
-  check("hidden section remembered", await page.$eval("#github", (s) => s.hidden));
+  check("hidden section remembered", await page.$eval("#github", (s) => s.classList.contains("is-user-hidden")));
 
   // A second tab that changes a value updates this tab through the storage event.
   const other = await browser.newPage();
@@ -86,7 +86,7 @@ const OUT = process.argv[3] || ".";
     localStorage.setItem("portfolio-visitor-name", "<script>");
   });
   await page.reload({ waitUntil: "networkidle0" });
-  check("corrupt values ignored", !(await page.$eval("#github", (s) => s.hidden)) && !(await text("#greeting")).includes("<"));
+  check("corrupt values ignored", !(await page.$eval("#github", (s) => s.classList.contains("is-user-hidden"))) && !(await text("#greeting")).includes("<"));
 
   // Sign out and reset.
   await page.evaluate(() => localStorage.setItem("portfolio-visitor-name", "Sara"));
@@ -98,7 +98,7 @@ const OUT = process.argv[3] || ".";
   await page.click('#prefs-sections input[data-section="github"]');
   await page.click("#prefs-reset");
   await wait(500); // Reset may switch the theme; clicks are ignored during its cross-fade.
-  check("reset restores sections and clears storage", !(await page.$eval("#github", (s) => s.hidden)) && (await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("portfolio-") && !k.includes("cache")).length)) === 0);
+  check("reset restores sections and clears storage", !(await page.$eval("#github", (s) => s.classList.contains("is-user-hidden"))) && (await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("portfolio-") && !["portfolio-weather", "portfolio-github-repos"].includes(k)).length)) === 0);
   await page.click("#prefs-done");
 
   await page.setViewport({ width: 390, height: 844 });

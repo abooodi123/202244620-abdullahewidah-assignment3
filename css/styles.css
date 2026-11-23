@@ -152,7 +152,8 @@ ol {
   outline: none;
 }
 
-[hidden] {
+[hidden],
+.is-user-hidden {
   display: none !important;
 }
 
@@ -792,6 +793,109 @@ h1 em {
   color: var(--ink);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+/* Live weather card under the Dhahran clock. It needs JavaScript, and its
+   height is reserved before the data arrives so nothing below it jumps. */
+.weather {
+  display: none;
+}
+
+.js .weather {
+  display: flex;
+  min-height: 5.6rem;
+  align-items: flex-start;
+  gap: 1rem;
+  max-width: 34rem;
+  margin-top: 0.9rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  font-size: 0.86rem;
+}
+
+.weather-body {
+  display: flex;
+  align-items: flex-start;
+  flex: 1;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.weather-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.weather-text p {
+  margin: 0;
+}
+
+.weather-now {
+  font-size: 0.95rem;
+}
+
+.weather-now strong {
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-details,
+.weather-source {
+  color: var(--muted);
+}
+
+.weather-remark {
+  font-style: italic;
+}
+
+.weather-source {
+  margin-top: 0.25rem !important;
+  font-size: 0.78rem;
+}
+
+.weather-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  margin: 0;
+  color: var(--muted);
+}
+
+.weather-source.is-error,
+.weather-note.is-error {
+  color: var(--danger);
+}
+
+.weather .text-button {
+  padding-block: 0;
+  font-size: inherit;
+}
+
+.weather-units {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+}
+
+.weather-units span {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 420px) {
+  .weather {
+    flex-direction: column;
+  }
 }
 
 .hero-visual {
@@ -2558,6 +2662,10 @@ h1 em {
 
 .js .hero-copy > :nth-child(5) {
   animation-delay: 0.32s;
+}
+
+.js .hero-copy > :nth-child(6) {
+  animation-delay: 0.4s;
 }
 
 .js .hero-visual {

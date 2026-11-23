@@ -8,7 +8,8 @@
 
 // Cached data and drafts. Visitor preferences live in the state store below.
 const STORAGE_KEYS = {
-  githubCache: "portfolio-github-cache",
+  githubCache: "portfolio-github-repos",
+  weatherCache: "portfolio-weather",
   contactDraft: "portfolio-contact-draft",
 };
 
@@ -108,6 +109,66 @@ function timeAgo(date) {
   return "just now";
 }
 
+/* ---------- Shared API helpers (used by the GitHub and weather features) ---------- */
+
+// An Error tagged with a `kind` (offline, timeout, rate-limit, not-found, http,
+// or network), so each feature can explain the exact problem in plain words.
+function apiError(kind, details = {}) {
+  return Object.assign(new Error(kind), { kind }, details);
+}
+
+// fetch() with an offline check, a timeout, and tagged errors for every failure.
+async function fetchJson(url, { timeoutMs = 10000, headers = {} } = {}) {
+  if (!navigator.onLine) throw apiError("offline");
+
+  // fetch has no timeout of its own: abort slow requests so nobody waits forever.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(url, { headers, signal: controller.signal });
+  } catch (error) {
+    throw apiError(error.name === "AbortError" ? "timeout" : "network");
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    // 429 means "too many requests"; GitHub also uses 403 with no requests remaining.
+    const limitReached = response.status === 429 || (response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0");
+    const kind = limitReached ? "rate-limit" : response.status === 404 ? "not-found" : "http";
+    throw apiError(kind, { status: response.status, resetAt: Number(response.headers.get("x-ratelimit-reset")) * 1000 || 0 });
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    throw apiError("http"); // The server answered, but not with valid JSON.
+  }
+}
+
+// A saved copy of API data with the time it was saved, so a page can show
+// fresh data instantly and fall back to an older copy when a request fails.
+function createApiCache(key, maxAgeMinutes, isValidData) {
+  return {
+    read() {
+      try {
+        const entry = JSON.parse(storage.get(key));
+        if (entry && typeof entry.savedAt === "number" && isValidData(entry.data)) return entry;
+      } catch {
+        // A damaged copy is ignored and replaced on the next successful load.
+      }
+      return null;
+    },
+    write(data) {
+      const entry = { savedAt: Date.now(), data };
+      storage.set(key, JSON.stringify(entry));
+      return entry;
+    },
+    isFresh: (entry) => Boolean(entry) && Date.now() - entry.savedAt < maxAgeMinutes * 60 * 1000,
+  };
+}
+
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function onMediaChange(query, handler) {
@@ -145,6 +206,7 @@ const STATE_SCHEMA = {
   hiddenSections: { key: "portfolio-hidden-sections", fallback: [], format: "json", isValid: (value) => Array.isArray(value) && value.every((id) => typeof id === "string") },
   githubForks: { key: "portfolio-github-forks", fallback: false, format: "json", isValid: (value) => typeof value === "boolean" },
   projectView: { key: "portfolio-project-view", fallback: "all", format: "text", isValid: isOneOf("all", "beginner", "advanced") },
+  tempUnit: { key: "portfolio-temp-unit", fallback: "celsius", format: "text", isValid: isOneOf("celsius", "fahrenheit") },
 };
 
 // A tiny publish/subscribe store. Features read values with get(), change them
@@ -350,6 +412,178 @@ function initGreeting() {
   }, (60 - new Date().getSeconds()) * 1000);
 }
 
+/* ---------- Weather in Dhahran (Open-Meteo API) ---------- */
+
+const WEATHER = {
+  // Open-Meteo is free and needs no API key. Temperatures always arrive in
+  // Celsius and are converted on the page, so switching units needs no request.
+  url:
+    "https://api.open-meteo.com/v1/forecast?latitude=26.29&longitude=50.11" +
+    "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day&timezone=Asia%2FRiyadh",
+  cacheMinutes: 15, // The service updates its "current" values every 15 minutes.
+  timeoutMs: 8000,
+};
+
+const WEATHER_ICONS = {
+  sun: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />',
+  cloud: '<path d="M7 18h10a4 4 0 0 0 .6-8A6 6 0 0 0 6.2 11 3.5 3.5 0 0 0 7 18Z" />',
+  fog: '<path d="M4 9h16M6 13h12M4 17h16" />',
+  rain: '<path d="M7 14h10a4 4 0 0 0 .6-8A6 6 0 0 0 6.2 7 3.5 3.5 0 0 0 7 14ZM8 17l-1 3M12 17l-1 3M16 17l-1 3" />',
+  storm: '<path d="M7 14h10a4 4 0 0 0 .6-8A6 6 0 0 0 6.2 7 3.5 3.5 0 0 0 7 14ZM12.5 14 10 18h4l-2.5 4" />',
+  snow: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" />',
+};
+
+// Turns a WMO weather code (the standard the API uses) into words and an icon.
+function describeWeatherCode(code, isDay) {
+  if (code === 0) return { text: isDay ? "Clear sky" : "Clear night", icon: isDay ? "sun" : "moon" };
+  if (code <= 2) return { text: code === 1 ? "Mainly clear" : "Partly cloudy", icon: isDay ? "sun" : "moon" };
+  if (code === 3) return { text: "Overcast", icon: "cloud" };
+  if (code === 45 || code === 48) return { text: "Foggy", icon: "fog" };
+  if (code >= 51 && code <= 57) return { text: "Drizzle", icon: "rain" };
+  if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return { text: "Rain", icon: "rain" };
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return { text: "Snow", icon: "snow" };
+  if (code >= 95) return { text: "Thunderstorm", icon: "storm" };
+  return { text: "Current conditions", icon: "cloud" };
+}
+
+// A short local remark, chosen by checking the conditions in order of importance.
+function weatherRemark({ temperature, humidity, code }) {
+  if (code >= 95) return "Thunderstorms are rare here, so this is a big event.";
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return "Rain is a rare sight in the Eastern Province.";
+  if (temperature >= 40) return "A classic Eastern Province scorcher.";
+  if (temperature >= 30 && humidity >= 70) return "Hot and humid, typical for the Gulf coast.";
+  if (temperature <= 15) return "Cool by Dhahran standards.";
+  return "";
+}
+
+const formatTemperature = (celsius, unit) => `${Math.round(unit === "fahrenheit" ? (celsius * 9) / 5 + 32 : celsius)}°${unit === "fahrenheit" ? "F" : "C"}`;
+
+async function fetchDhahranWeather() {
+  const data = await fetchJson(WEATHER.url, { timeoutMs: WEATHER.timeoutMs });
+  const current = data && data.current;
+  const weather = {
+    temperature: Number(current && current.temperature_2m),
+    feelsLike: Number(current && current.apparent_temperature),
+    humidity: Number(current && current.relative_humidity_2m),
+    wind: Number(current && current.wind_speed_10m),
+    code: Number(current && current.weather_code),
+    isDay: Boolean(current && current.is_day),
+  };
+  // Reject a response with missing or non-numeric values instead of showing "NaN°C".
+  const numbers = [weather.temperature, weather.feelsLike, weather.humidity, weather.wind, weather.code];
+  if (!numbers.every(Number.isFinite)) throw apiError("http");
+  return weather;
+}
+
+function describeWeatherError(error) {
+  switch (error.kind) {
+    case "offline":
+      return "You’re offline, so the Dhahran weather can’t load. It will load once you reconnect.";
+    case "timeout":
+      return "The weather service is slow to respond right now.";
+    case "rate-limit":
+      return "The weather service is busy right now.";
+    default:
+      return "The weather in Dhahran is unavailable right now.";
+  }
+}
+
+const isValidWeather = (data) => Boolean(data) && ["temperature", "feelsLike", "humidity", "wind", "code"].every((field) => Number.isFinite(data[field]));
+
+function initWeather() {
+  const panel = $("#weather");
+  const body = $("#weather-body");
+  const unitRadios = $$('input[name="temp-unit"]', panel);
+  const cache = createApiCache(STORAGE_KEYS.weatherCache, WEATHER.cacheMinutes, isValidWeather);
+
+  const state = { entry: null, error: null, loading: false };
+
+  function icon(name) {
+    const svg = createElement("span", { className: "weather-icon", attrs: { "aria-hidden": "true" } });
+    // Fixed icon markup written in this file; no outside data goes into innerHTML.
+    svg.innerHTML = `<svg class="icon" viewBox="0 0 24 24">${WEATHER_ICONS[name]}</svg>`;
+    return svg;
+  }
+
+  const retryButton = () => {
+    const button = createElement("button", { className: "text-button", attrs: { type: "button" } }, [createElement("span", { text: "Try again" })]);
+    button.addEventListener("click", () => load({ force: true }));
+    return button;
+  };
+
+  function render() {
+    const unit = store.get("tempUnit");
+    unitRadios.forEach((radio) => (radio.checked = radio.value === unit));
+    body.textContent = "";
+
+    // No data at all: say what went wrong and offer a retry.
+    if (!state.entry) {
+      if (state.loading) {
+        body.append(createElement("p", { className: "weather-note" }, [createElement("span", { className: "spinner", attrs: { "aria-hidden": "true" } }), "Checking the weather in Dhahran…"]));
+      } else if (state.error) {
+        body.append(createElement("p", { className: "weather-note is-error" }, [describeWeatherError(state.error), " ", retryButton()]));
+      }
+      return;
+    }
+
+    const weather = state.entry.data;
+    const condition = describeWeatherCode(weather.code, weather.isDay);
+    const remark = weatherRemark(weather);
+    const details = `Feels like ${formatTemperature(weather.feelsLike, unit)} · Humidity ${Math.round(weather.humidity)}% · Wind ${Math.round(weather.wind)} km/h`;
+    // An older copy shown after a failed refresh says so, instead of pretending to be live.
+    const source = state.error ? `${describeWeatherError(state.error)} Showing the reading from ${timeAgo(state.entry.savedAt)}.` : `Live from Open-Meteo, updated ${timeAgo(state.entry.savedAt)}.`;
+
+    body.append(
+      icon(condition.icon),
+      createElement("div", { className: "weather-text" }, [
+        createElement("p", { className: "weather-now" }, [createElement("strong", { text: formatTemperature(weather.temperature, unit) }), ` ${condition.text} in Dhahran`]),
+        createElement("p", { className: "weather-details", text: details }),
+        ...(remark ? [createElement("p", { className: "weather-remark", text: remark })] : []),
+        createElement("p", { className: state.error ? "weather-source is-error" : "weather-source" }, [source, ...(state.error ? [" ", retryButton()] : [])]),
+      ])
+    );
+  }
+
+  async function load({ force = false } = {}) {
+    if (state.loading) return;
+    const saved = cache.read();
+    if (!force && cache.isFresh(saved)) {
+      Object.assign(state, { entry: saved, error: null });
+      render();
+      return;
+    }
+
+    state.loading = true;
+    if (!state.entry) state.entry = saved; // Show an older copy while the new one loads.
+    render();
+    try {
+      state.entry = cache.write(await fetchDhahranWeather());
+      state.error = null;
+    } catch (error) {
+      state.error = error;
+    } finally {
+      state.loading = false;
+      render();
+    }
+  }
+
+  unitRadios.forEach((radio) => radio.addEventListener("change", () => store.set("tempUnit", radio.value)));
+  store.subscribe("tempUnit", render);
+
+  // Refresh when the visitor comes back to the tab after the reading went stale,
+  // instead of polling in the background, and retry once the connection returns.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && !cache.isFresh(state.entry)) load();
+  });
+  window.addEventListener("online", () => state.error && load({ force: true }));
+
+  // Keep "updated 5 minutes ago" accurate while the page stays open.
+  setInterval(() => document.visibilityState === "visible" && state.entry && !state.loading && render(), 60 * 1000);
+
+  load();
+}
+
 /* ---------- Personalize dialog: sign in, theme, and visible sections ---------- */
 
 function initPersonalize() {
@@ -432,12 +666,14 @@ function initPersonalize() {
     "hiddenSections",
     (hiddenIds) => {
       hideables.forEach((section, index) => {
+        // A class, not the hidden attribute, so a feature can still show or hide
+        // its own element (for example while loading) without the two clashing.
         const isHidden = hiddenIds.includes(section.id);
-        section.hidden = isHidden;
+        section.classList.toggle("is-user-hidden", isHidden);
         switches[index].checked = !isHidden;
         // A hidden section's navigation link would lead nowhere, so hide it too.
         const navLink = $(`.nav-links a[href="#${section.id}"]`);
-        if (navLink) navLink.parentElement.hidden = isHidden;
+        if (navLink) navLink.parentElement.classList.toggle("is-user-hidden", isHidden);
       });
     },
     { now: true }
@@ -811,36 +1047,12 @@ const LANGUAGE_COLORS = {
 const REPO_ICON =
   '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H19v16H7.5A2.5 2.5 0 0 0 5 20.5v-16ZM5 20.5A2.5 2.5 0 0 0 7.5 23H19v-5" /></svg>';
 
-function gitHubError(kind, details = {}) {
-  return Object.assign(new Error(kind), { kind }, details);
-}
-
 async function fetchGitHubRepos() {
-  if (!navigator.onLine) throw gitHubError("offline");
-
-  // Abort slow requests so the visitor is never left waiting forever.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GITHUB.timeoutMs);
-  let response;
-  try {
-    response = await fetch(`https://api.github.com/users/${GITHUB.user}/repos?per_page=100&sort=pushed`, {
-      headers: { Accept: "application/vnd.github+json" },
-      signal: controller.signal,
-    });
-  } catch (error) {
-    throw gitHubError(error.name === "AbortError" ? "timeout" : "network");
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!response.ok) {
-    const limitReached = (response.status === 403 || response.status === 429) && response.headers.get("x-ratelimit-remaining") === "0";
-    const kind = limitReached ? "rate-limit" : response.status === 404 ? "not-found" : "http";
-    throw gitHubError(kind, { status: response.status, resetAt: Number(response.headers.get("x-ratelimit-reset")) * 1000 });
-  }
-
-  const data = await response.json();
-  if (!Array.isArray(data)) throw gitHubError("http");
+  const data = await fetchJson(`https://api.github.com/users/${GITHUB.user}/repos?per_page=100&sort=pushed`, {
+    timeoutMs: GITHUB.timeoutMs,
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!Array.isArray(data)) throw apiError("http");
 
   // Keep only the fields the page shows: a smaller cache and simpler rendering.
   return data.map((repo) => ({
@@ -920,15 +1132,7 @@ function initGitHubRepos() {
     failed: false,
   };
 
-  function readCache() {
-    try {
-      const cache = JSON.parse(storage.get(STORAGE_KEYS.githubCache));
-      if (cache && Array.isArray(cache.repos) && typeof cache.savedAt === "number") return cache;
-    } catch {
-      // A damaged cache is ignored and replaced on the next successful load.
-    }
-    return null;
-  }
+  const cache = createApiCache(STORAGE_KEYS.githubCache, GITHUB.cacheMinutes, Array.isArray);
 
   function showLoading() {
     toolbar.hidden = true;
@@ -1000,10 +1204,9 @@ function initGitHubRepos() {
 
   async function load({ force = false } = {}) {
     if (state.loading) return;
-    const cache = readCache();
-    const cacheIsFresh = cache && Date.now() - cache.savedAt < GITHUB.cacheMinutes * 60 * 1000;
-    if (!force && cacheIsFresh) {
-      Object.assign(state, { repos: cache.repos, savedAt: cache.savedAt, failed: false });
+    const saved = cache.read();
+    if (!force && cache.isFresh(saved)) {
+      Object.assign(state, { repos: saved.data, savedAt: saved.savedAt, failed: false });
       render();
       return;
     }
@@ -1013,13 +1216,12 @@ function initGitHubRepos() {
     if (!state.repos) showLoading();
 
     try {
-      const repos = await fetchGitHubRepos();
-      Object.assign(state, { repos, savedAt: Date.now(), failed: false });
-      storage.set(STORAGE_KEYS.githubCache, JSON.stringify({ savedAt: state.savedAt, repos }));
+      const entry = cache.write(await fetchGitHubRepos());
+      Object.assign(state, { repos: entry.data, savedAt: entry.savedAt, failed: false });
       render();
     } catch (error) {
       state.failed = true;
-      const fallback = state.repos ? { repos: state.repos, savedAt: state.savedAt } : cache;
+      const fallback = state.repos ? { repos: state.repos, savedAt: state.savedAt } : saved && { repos: saved.data, savedAt: saved.savedAt };
       if (fallback) {
         // Stale data is better than none: show it and explain why it is old.
         Object.assign(state, fallback);
@@ -1068,13 +1270,13 @@ function initGitHubRepos() {
 
   // A fresh cached copy costs nothing, so show it straight away; this also keeps
   // the cards in the keyboard Tab order for visitors who tab quickly down the page.
-  const cache = readCache();
-  if (cache && Date.now() - cache.savedAt < GITHUB.cacheMinutes * 60 * 1000) {
+  if (cache.isFresh(cache.read())) {
     load();
     return;
   }
 
-  // Otherwise call the API only when the section is close to the screen.
+  // Otherwise call the API only when the section is close to the screen. A
+  // section the visitor has hidden is never on screen, so it costs no request.
   if ("IntersectionObserver" in window) {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -1422,7 +1624,7 @@ function initContactForm() {
 
 /* ---------- Start ---------- */
 
-[initTheme, initNavigation, initGreeting, initPersonalize, initAboutTabs, initProjectExplorer, initGitHubRepos, initCopyEmail, initContactForm, initScrollEffects, initFooterYear].forEach((init) => {
+[initTheme, initNavigation, initGreeting, initWeather, initPersonalize, initAboutTabs, initProjectExplorer, initGitHubRepos, initCopyEmail, initContactForm, initScrollEffects, initFooterYear].forEach((init) => {
   try {
     init();
   } catch (error) {

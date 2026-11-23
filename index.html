@@ -80,6 +80,14 @@
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
               <span>It’s <time id="dhahran-time"></time> for me in Dhahran, Saudi Arabia.</span>
             </p>
+            <!-- Live weather in Dhahran from the Open-Meteo API, filled in by script (CSS hides it without JavaScript). -->
+            <div class="weather" id="weather" data-hideable="Weather in Dhahran">
+              <div class="weather-body" id="weather-body"></div>
+              <div class="weather-units segmented" role="radiogroup" aria-label="Temperature unit">
+                <label><input type="radio" name="temp-unit" value="celsius" /><span>°C</span></label>
+                <label><input type="radio" name="temp-unit" value="fahrenheit" /><span>°F</span></label>
+              </div>
+            </div>
           </div>
 
           <div class="hero-visual" aria-hidden="true">

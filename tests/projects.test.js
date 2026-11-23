@@ -41,7 +41,7 @@ const OUT = process.argv[3] || ".";
   await wait(300);
   check("empty state shows", await page.$eval("#project-empty", (el) => !el.hidden));
   console.log("  empty text:", await page.$eval("#project-empty-text", (el) => el.textContent));
-  await page.screenshot({ path: `${OUT}/proj-empty.png`, clip: { x: 0, y: 0, width: 1280, height: 900 }, captureBeyondViewport: false });
+  await page.screenshot({ path: `${OUT}/proj-empty.png` });
   await page.click("#project-reset");
   await wait(200);
   check("reset restores 4", (await visible()).length === 4 && (await page.$eval("#project-empty", (el) => el.hidden)));

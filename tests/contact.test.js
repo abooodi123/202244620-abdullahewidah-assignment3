@@ -59,7 +59,9 @@ const check = (label, cond) => console.log(`${cond ? "PASS" : "FAIL"} ${label}`)
   await wait(300);
   await page.screenshot({ path: `${OUT}/contact-draft.png` });
 
-  // Valid submit.
+  // Valid submit. (Since Assignment 3, the job topic also requires a company.)
+  check("restored job topic brings back the company field", await page.$eval("#company-field", (el) => !el.hidden));
+  await page.type("#company", "Example Labs");
   await page.type("#message", ", I'd like to talk about an internship.");
   await page.click('#contact-form button[type="submit"]');
   await wait(600);
